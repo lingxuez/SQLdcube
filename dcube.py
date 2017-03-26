@@ -1,6 +1,6 @@
 ## D-Cube
 
-import argparse
+import argparse, os
 from dcube_sql import *
 
 
@@ -68,7 +68,8 @@ def load_table_from_file(table_name, col_names, col_fmts,
 
 def dcube_test(dbname, user, port, file_name, 
                         table_name, K,
-                        dmeasure="arithmetic", policy="cardinality"):
+                        dmeasure="arithmetic", policy="cardinality",
+                        outdir="./out/"):
     """
     Dense subtensor mining on the DARPA data.
     Args:
@@ -101,7 +102,9 @@ def dcube_test(dbname, user, port, file_name,
 
             ## D-CUBE
             print "Performing D-Cube..."
-            dcube(table_name, col_names, X_name, K, N, cur, dmeasure, policy)
+            file_prefix=(file_name.rsplit("/")[len(file_name.rsplit("/"))-1]).split(".csv")[0]
+            dcube(table_name, col_names, X_name, K, N, cur, dmeasure, policy,
+                outdir=outdir, out_prefix=file_prefix)
 
             ## clean up: drop the created data table
             cur.execute("DROP TABLE %s;" % table_name)
@@ -114,8 +117,12 @@ if __name__ == "__main__":
     parser.add_argument("-port", "--port", type=str, default="5432")
     parser.add_argument("-f", "--file_name", type=str, default="tests/test_data.csv")
     parser.add_argument("-tb", "--table_name", type=str, default="test_data")
-    parser.add_argument("-K", "--K", type=int, default=2)
+    parser.add_argument("-K", "--K", type=int, default=1)
+    parser.add_argument("-out", "--outdir", type=str, default="out/")
     args = parser.parse_args()
+
+    if not os.path.exists(args.outdir):
+        os.makedirs(args.outdir)
 
     ## D-cube
     # dcube_darpa(args.dbname, args.user, args.port, args.file_name, 
@@ -123,15 +130,7 @@ if __name__ == "__main__":
     #                         dmeasure="geometric", policy="cardinality")
     dcube_test(args.dbname, args.user, args.port, args.file_name, 
                             args.table_name, args.K, 
-                            dmeasure="geometric", policy="cardinality")
-
-    # ## Connect to the database
-    # DSN = "dbname=%s user=%s port=%s" % (args.dbname, args.user, args.port)
-    # with psycopg2.connect(DSN) as conn:
-    #     with conn.cursor() as cur:
-    #         ## D-cube
-    #         dcube_darpa(args.file_name, args.table_name, K=1, cur=cur)
-    #         ## drop the data tables
-    #         cur.execute("DROP TABLE %s;" % args.table_name)
+                            dmeasure="geometric", policy="density",
+                            outdir=args.outdir)
 
 

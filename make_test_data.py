@@ -10,7 +10,7 @@ def make_tensor_1block(tensor_size, block_size, N, low_dens=1, high_dens=100):
     """
     ## dense block
     dim_values = [[string.ascii_letters[n] + i for i in map(str, range(block_size))] 
-    for n in range(N)]
+                    for n in range(N)]
     block = np.array(cartesian(dim_values + [[high_dens]]))
     ## remaining tensors
     # other_dim_values = [[string.ascii_letters[n] + i for i in map(str, range(block_size, tensor_size))] 

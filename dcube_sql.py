@@ -32,34 +32,77 @@ def compute_density(cur, N, dmeasure):
     else:
         return get_parameter(cur, par="B_mass") / avg_card
 
-#TODO 
-def select_dimension(cur, N, policy):
+
+def select_dim_by_card(cur, N):
+    """
+    Select the next dimension to remove with the largest cardinality.
+    Args:
+        cur: cursor of database connection
+        N: number of total dimensions
+    """
+    max_dim, max_card = -1, -1
+    for n in range(N):
+        ## cardinality of B_n
+        card = get_parameter(cur, par=("card_B%d" % n))
+        if card > max_card:
+            max_dim, max_card = n, card
+    return max_dim
+
+
+def select_dim_by_dens(cur, N, dmeasure):
+    """
+    Select the next dimension to remove by density.
+    Args:
+        cur: cursor of database connection
+        N: number of total dimensions
+        dmeasure: "arithmetic" or "geometric", density measure
+    """
+    max_dens, max_dim = -10, 0 ## note: by construction density is always >= -1
+    B_mass = get_parameter(cur, par="B_mass")
+
+    for n in range(N):
+        card = get_parameter(cur, par=("card_B%d" % n))
+        if card > 0:
+            ## what will be the density if we remove all values with mass <= average
+            avg_mass = B_mass/float(card)
+            cur.execute("SELECT sum(mass), count(*) FROM B%d WHERE mass <= %f;" % (n, avg_mass))
+            (rm_mass, rm_card) = cur.fetchone()
+
+            update_parameter(cur, ("card_B%d" % n), card - rm_card)
+            update_parameter(cur, "B_mass", B_mass - rm_mass)
+            density = compute_density(cur, N, dmeasure)
+            if density > max_dens:
+                max_dim, max_dens = n, density
+
+            ## need to change the parameters back
+            update_parameter(cur, ("card_B%d" % n), card)
+            update_parameter(cur, "B_mass", B_mass)
+
+    return max_dim
+
+
+
+def select_dimension(cur, N, policy, dmeasure):
     """
     Args:
         cur: cursor of database connection
         N: number of total dimensions
         policy: "cardinality" or "density"
     """
-
     if policy == "cardinality":
-        ## policy 1: largest cardinality
-        max_dim, max_card = -1, -1
-        for n in range(N):
-            ## cardinality of B_n
-            card = get_parameter(cur, par=("card_B%d" % n))
-            if card > max_card:
-                max_dim, max_card = n, card
-        return max_dim
-
-    # TODO
+        return select_dim_by_card(cur, N)
+    elif policy == "density":
+        return select_dim_by_dens(cur, N, dmeasure)
     else:
-        ## policy 2: by density
-        return 0
+        raise ValueError("policy must be one of 'cardinality' or 'density'.")
 
 
 def compute_card(cur, table_name):
     """
     Compute the cardinality of a table.
+    Args:
+        cur: cursor of database connection
+        table_name: name of the target table
     """
     cur.execute("SELECT count(*) FROM (SELECT 1 FROM %s) As t;" % table_name)
     return cur.fetchone()[0]
@@ -70,10 +113,22 @@ def get_parameter(cur, par):
     Extrat the global parameter from the table "parameters".
     Args:
         cur: cursor of database connection
-        par: parameter name
+        par: parameter name. Possible values include 'total_mass', 'B_mass', 'card_Bn'
     """
     cur.execute("SELECT value FROM parameters WHERE par='%s';" % par)
     return cur.fetchone()[0]
+
+
+def update_parameter(cur, par, new_value):
+    """
+    Update the global parameter in the table "parameters".
+    Args:
+        cur: cursor of database connection
+        par: parameter name. Possible values include 'total_mass', 'B_mass', 'card_Bn'
+        new_value: new value, a double
+    """
+    cur.execute("UPDATE parameters SET value=%f WHERE par='%s';" % 
+                    (new_value, par))
 
 
 def has_remained_B(N, cur):
@@ -105,31 +160,20 @@ def init_B_tables(table_curr, col_names, X_name, N, cur):
     cur.execute("CREATE TABLE Btable AS SELECT * FROM %s;" % table_curr)
 
     ## total mass in Btable; initially equals to current total mass
-    cur.execute(("UPDATE parameters SET value=%f " % get_parameter(cur, 'total_mass'))+ 
-                "WHERE par='B_mass';")
+    update_parameter(cur, 'B_mass', get_parameter(cur, 'total_mass'))
 
     ## a table to keep track of the removal order of each entry
     cur.execute("CREATE TABLE rmOrder (value varchar(20), dimension int, r int);")
 
-    ## create tables Bn to store all values in Rn and their masses in each dimension
+    ## create tables Bn(value, mass) to store all values in Rn and the mass
     ## note that if a value is missing in Btable, we treat its mass as zero
     for n in range(N):
         cur.execute(("CREATE TABLE B%d AS SELECT value, sum(measure) as mass FROM " % n) 
              + ("(SELECT R%d.value as value, COALESCE(Btable.%s, 0) as measure " % (n, X_name))
              + ("FROM Btable RIGHT JOIN R%d ON Btable.%s=R%d.value) AS t " % (n, col_names[n], n))
              + ("GROUP BY value;"))
-
-        # print ("B%d" % n)
-        # cur.execute("SELECT * FROM B%d;" % n)
-        # print cur.fetchall()
-
         ## record its cardinality
-        cur.execute(("UPDATE parameters SET value=%d " % compute_card(cur, "B"+str(n)))
-                  + ("WHERE par='card_B%d';" % n))
-
-    # cur.execute(("SELECT COALESCE(Btable.%s, 0) as Quantity, R%d.value as value " % (X_name, n))
-    #          + ("FROM Btable RIGHT JOIN R%d ON Btable.%s=R%d.value " % (n, col_names[n], n)))
-    # print cur.fetchall()
+        update_parameter(cur, 'card_B%d' % n, compute_card(cur, "B"+str(n)))
 
 
 
@@ -143,15 +187,6 @@ def recompute_Bmass(col_names, X_name, N, cur):
         cur: cursor for database connection
     """
     for n in range(N):
-        # cur.execute(("CREATE TABLE new_B AS SELECT %s as value, sum(%s) as mass " 
-        #                 % (col_names[n], X_name)) 
-        #      + ("FROM Btable, B%d WHERE Btable.%s=B%d.value " % (n, col_names[n], n))
-        #       + ("GROUP BY %s;" % col_names[n]))
-
-        # print ("old B%d" % n)
-        # cur.execute("SELECT * FROM B%d;" % n)
-        # print cur.fetchall()
-
         ## it's faster to re-create a new table than updating the old one
         ## the cardinality is the same as the old Bn
         ## if a value is missing in Btable, we treat its mass as zero
@@ -163,10 +198,6 @@ def recompute_Bmass(col_names, X_name, N, cur):
         cur.execute("CREATE TABLE B%d AS SELECT * FROM new_B;" % n)
         cur.execute("DROP TABLE new_B;")
 
-        # print ("new B%d" % n)
-        # cur.execute("SELECT * FROM B%d;" % n)
-        # print cur.fetchall()
-
 
 def get_next_Brow(Bn, cur):
     """
@@ -177,44 +208,6 @@ def get_next_Brow(Bn, cur):
     """
     cur.execute("SELECT value, mass FROM %s ORDER BY mass LIMIT 1;" % Bn)
     return cur.fetchone()
-
-
-# def del_entry_from_Btable(col_names, N, n_rm, value_rm, cur):
-#     """
-#     When we delete the entries with Bn==value,
-#     we need to update Btable, as well as other Bn's.
-#     Note that Btable may not be the full span of the tensor,
-#     so we need to do it more carefully.
-#     """
-#     print ("Deleting dimension %d, value %s" % (n_rm, value_rm))
-
-#     ## delete from other Bn's
-#     for n in range(N):
-#         ## for debug
-#         cur.execute("SELECT DISTINCT %s FROM Btable WHERE Btable.%s = '%s';" % 
-#                     (col_names[n], col_names[n_rm], value_rm))
-#         print ("delete following values from B%d" % n)
-#         print cur.fetchall()
-
-#         cur.execute(("DELETE FROM B%d AS B WHERE B.value IN " % n) +
-#                     "(SELECT DISTINCT %s FROM Btable WHERE Btable.%s = '%s');" % 
-#                     (col_names[n], col_names[n_rm], value_rm))
-
-#         print ("B%d becomes:" % n)
-#         cur.execute("SELECT * FROM B%d;" % n)
-#         print cur.fetchall()
-
-#     ## delete from Btable
-#     cur.execute("DELETE FROM Btable WHERE %s='%s';" % (col_names[n_rm], value_rm))
-
-#     ## update the cardinality
-#     for n in range(N):
-#         cur.execute("UPDATE parameters "+ 
-#                 ("SET value=(%f) " % compute_card(cur, "B"+str(n))) + 
-#                 ("WHERE par='card_B%d';"% n))
-
-#     cur.execute("SELECT * FROM parameters;")
-#     cur.fetchall()
 
 
 def find_single_block(table_curr, col_names, X_name, N, cur, dmeasure, policy):
@@ -233,25 +226,16 @@ def find_single_block(table_curr, col_names, X_name, N, cur, dmeasure, policy):
     max_dens = compute_density(cur, N, dmeasure)
     curr_order, max_order = 1, 1
 
-    # ## for debug
-    # cur.execute("SELECT * FROM parameters;")
-    # print "Initial parameters:"
-    # print cur.fetchall()
-
     ## repeatedly remove all entries in Btable
     while has_remained_B(N, cur):
         ## select dimension to remove
-        n_rm = select_dimension(cur, N, policy)
+        n_rm = select_dimension(cur, N, policy, dmeasure)
         B_rm = ("B%d" % n_rm)
-
-        # print ("Removing dimension %d" % n_rm)
-        # print ("current best order is %d" % max_order)
 
         ## entries that have mass smaller than the average will be removed
         card = get_parameter(cur, par=("card_B%d" % n_rm))
         B_mass = get_parameter(cur, par="B_mass")
         avg_mass = B_mass/float(card)
-        # print "avg_mass=", avg_mass
 
         ## repeatedly delete entries in B_rm
         ## Note: this chunk of code is very inefficient!!!
@@ -264,6 +248,7 @@ def find_single_block(table_curr, col_names, X_name, N, cur, dmeasure, policy):
                     "VALUES ('%s', %d, %d)" % (curr_value, n_rm, curr_order))
             curr_order += 1
             
+            ## remove this entry
             cur.execute("DELETE FROM %s WHERE value='%s'" % (B_rm, curr_value))
             cur.execute("UPDATE Btable SET %s=0 WHERE %s='%s';" % (X_name, col_names[n_rm], curr_value)) 
 
@@ -276,47 +261,19 @@ def find_single_block(table_curr, col_names, X_name, N, cur, dmeasure, policy):
             # print "density, max_dens =", (density, max_dens)
             if density > max_dens:
                 max_dens, max_order = density, curr_order
-                # print "updated max_dens, max_order: ", (max_dens, max_order)
-
-            ## delete these entries from Btable as well as other Bn's
-            # del_entry_from_Btable(col_names, N, n_rm, curr_value, cur)
 
             ## move to the next row
-            # print ("Removed (value=%s, mass=%f)" % (curr_value, curr_mass))
             curr_row = get_next_Brow(B_rm, cur)
-        
-
-        # # for debug
-        # print ("after removing dimension %d:" % n_rm)
-        # cur.execute("SELECT * FROM parameters;")
-        # print cur.fetchall()
-
-        # print ("Now Btabls is:")
-        # cur.execute("SELECT * FROM Btable;")
-        # print cur.fetchall()
 
         ## because we have changed Btable, we need to re-compute the mass
         recompute_Bmass(col_names, X_name, N, cur)
 
-        # ## for debug
-        # print ("after updating Btable:")
-        # cur.execute("SELECT * FROM parameters;")
-        # print cur.fetchall()
       
     ## reconstruct the dense block
-    # print "best order is ", max_order
-    # print "table rmOrder:"
-    # cur.execute("SELECT * FROM rmOrder;")
-    # print cur.fetchall()
-
     for n in range(N):
         cur.execute(("CREATE TABLE final_B%d AS SELECT R.value FROM R%d as R, rmOrder " % (n,n)) 
              + ("WHERE R.value=rmOrder.value and rmOrder.dimension=%d and rmOrder.r >= %d;" 
                 % (n, max_order)))
-
-        # print ("table final_B%d" % n)
-        # cur.execute("SELECT * FROM final_B%d" % n)
-        # print cur.fetchall()
 
     ## clean up: drop the created temporary tables
     cur.execute("DROP TABLE Btable, rmOrder, %s;" % 
@@ -324,7 +281,16 @@ def find_single_block(table_curr, col_names, X_name, N, cur, dmeasure, policy):
 
 
 def init_dcube_tables(table_name, table_curr, col_names, X_name, K, N, cur):
-
+    """
+    Initialize the tables for D-cube.
+    Args:
+        table_name: name of relation
+        col_names: column names of the relation for the N dimensions
+        X_name: column name of the measure attribute
+        K: number of blocks
+        N: number of dimension
+        cur: cursor of database connection
+    """
     ## make a copy of the original table to avoid changing the original data table; 
     ## the copied table will be changed.
     cur.execute("CREATE TABLE %s AS SELECT * FROM %s;" % (table_curr, table_name))
@@ -333,9 +299,6 @@ def init_dcube_tables(table_name, table_curr, col_names, X_name, K, N, cur):
     for n in range(N):
         cur.execute("CREATE TABLE R%d AS SELECT DISTINCT %s as value FROM %s " % 
                     (n, col_names[n], table_curr))
-        ## debug
-        # cur.execute("SELECT * FROM R%d;" % n)
-        # print cur.fetchall()[:10]
 
     ## create a table for global parameters
     cur.execute("CREATE TABLE parameters (par varchar(20), value double precision);")
@@ -348,10 +311,14 @@ def init_dcube_tables(table_name, table_curr, col_names, X_name, K, N, cur):
 
 
 def dcube(table_name, col_names, X_name, K, N, cur, 
-            dmeasure="arithmetic", policy="cardinality"):
+            dmeasure="arithmetic", policy="cardinality", 
+            outdir="out/", out_prefix="out"):
     """
+    D-Cube algorithm. Find K dense blocks in a given tensor.
     Args:
-        table_name: name of relation
+        table_name: name of the relation, it has N+1 columns, 
+                where the first N columns for the N dimensions with names col_names,
+                and the last column specifying the measure attribute with name X_name.
         col_names: column names of the relation for the N dimensions
         X_name: column name of the measure attribute
         K: number of blocks
@@ -369,9 +336,6 @@ def dcube(table_name, col_names, X_name, K, N, cur,
         ## update total mass according to current table
         cur.execute(("UPDATE parameters SET value=(SELECT sum(%s) FROM %s) " % (X_name, table_curr)) + 
                     " WHERE par='total_mass';" )
-        # ## debug:
-        # cur.execute("SELECT * FROM parameters;")
-        # print cur.fetchall()
 
         ## find single block
         find_single_block(table_curr, col_names, X_name, N, cur, dmeasure, policy)
@@ -383,21 +347,28 @@ def dcube(table_name, col_names, X_name, K, N, cur,
                                 ",".join(["final_B"+str(n) for n in range(N)]))) + 
                     ("WHERE %s;" % 
                     " and ".join([("R.%s=final_B%d.value" % (col_names[n], n)) for n in range(N)]))
-                    ) 
-        
-        print ("Found block %d:" % k)
+                    )
+
+        ## print result to stdout
+        print ("Found block %d:" % (k+1))
         for n in range(N):        
             print ("\tdimension %d:" % n)
             cur.execute("SELECT * FROM final_B%d" % n)
             print "\t", cur.fetchall()
-
+                
+        ## save the block to disk
+        outfile = outdir+"/"+out_prefix+"_block"+str(k+1)+".csv"
+        with open(outfile, mode="wt") as fout:
+            cur.copy_to(fout, ("block%d" % k), sep=',')
+        print ("The %d-th block is written to file '%s'." % (k+1, outfile))
+        
         ## remove the entries in the found block from current table
         cur.execute(("DELETE FROM %s as R WHERE EXISTS " % table_curr) + 
             ("(SELECT 1 FROM block%d as B WHERE %s);" % 
                 (k, " and ".join([("R.%s=B.%s" % (col_names[n], col_names[n])) 
                                     for n in range(N)]))))
 
-        ## clean up: drop the final_Bn tables
+        ## clean up: drop the final_Bn and blockk tables
         cur.execute("DROP TABLE %s;" % 
                         (",".join(["final_B"+str(n) for n in range(N)])))
         cur.execute("DROP TABLE block%d;"%k)
