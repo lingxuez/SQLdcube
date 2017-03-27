@@ -11,22 +11,78 @@ def compute_density(cur, N, dmeasure):
     Args:
         cur: cursor of database connection
         N: number of dimensions
-        dmeasure: "arithmetic" or "geometric", density measure
+        dmeasure: "arithmetic" or "geometric" or "suspicious", density measure
     """
     if dmeasure == "arithmetic":
-        ## arithmetic average of cardinalities of B_n's
-        avg_card = 0
-        for n in range(N):
-            card = get_parameter(cur, par=("card_B%d" % n))
-            avg_card += card / float(N)
+        return compute_density_ari(cur, N)
+
     elif dmeasure == "geometric":
-        ## geometric average of cardinalities of B_n's
-        avg_card = 1
-        for n in range(N):
-            card = get_parameter(cur, par=("card_B%d" % n))
-            avg_card *= card
-        avg_card = math.pow(avg_card, 1.0/N)
-        
+        return compute_density_geo(cur, N)
+
+    elif dmeasure == "suspicious":
+        return compute_density_susp(cur, N)
+
+
+def compute_density_susp(cur, N):
+    """
+    Compute density using the suspiciousness
+    Args:
+        cur: cursor of database connection
+        N: number of dimensions
+    """
+    ## first compute \prod_n |B_n|/|R_n|
+    product = 1
+    for n in range(N):
+        B_card = get_parameter(cur, par=("card_B%d" % n))
+        R_card = get_parameter(cur, par=("card_R%d" % n))
+        product *= (B_card / float(R_card))
+
+    ## suspiciousness
+    B_mass = get_parameter(cur, par="B_mass")
+    R_mass = get_parameter(cur, par="total_mass")
+    if product == 0 or B_mass == 0 or R_mass == 0: 
+        return -1
+    else:
+        susp = (B_mass * (math.log(B_mass/float(R_mass)) - 1) + 
+                R_mass * product - B_mass * math.log(product))
+        return susp
+
+
+def compute_density_ari(cur, N):
+    """
+    Compute density using the arithmetic average mass
+    Args:
+        cur: cursor of database connection
+        N: number of dimensions
+    """
+    ## arithmetic average cardinality
+    avg_card = 0
+    for n in range(N):
+        card = get_parameter(cur, par=("card_B%d" % n))
+        avg_card += card / float(N)
+
+    ## average mass
+    if avg_card == 0:
+        return -1
+    else:
+        return get_parameter(cur, par="B_mass") / avg_card
+
+
+def compute_density_geo(cur, N):
+    """
+    Compute density using the geometric average mass
+    Args:
+        cur: cursor of database connection
+        N: number of dimensions
+    """
+    ## geometric average cardinality
+    avg_card = 1
+    for n in range(N):
+        card = get_parameter(cur, par=("card_B%d" % n))
+        avg_card *= card
+    avg_card = math.pow(avg_card, 1.0/N)
+
+    ## average mass
     if avg_card == 0:
         return -1
     else:
@@ -55,7 +111,7 @@ def select_dim_by_dens(cur, N, dmeasure):
     Args:
         cur: cursor of database connection
         N: number of total dimensions
-        dmeasure: "arithmetic" or "geometric", density measure
+        dmeasure: "arithmetic" or "geometric" or "suspicious", density measure
     """
     max_dens, max_dim = -10, 0 ## note: by construction density is always >= -1
     B_mass = get_parameter(cur, par="B_mass")
@@ -63,7 +119,7 @@ def select_dim_by_dens(cur, N, dmeasure):
     for n in range(N):
         card = get_parameter(cur, par=("card_B%d" % n))
         if card > 0:
-            ## what will be the density if we remove all values with mass <= average
+            ## what will the density be if we remove all values with mass <= average
             avg_mass = B_mass/float(card)
             cur.execute("SELECT sum(mass), count(*) FROM B%d WHERE mass <= %f;" % (n, avg_mass))
             (rm_mass, rm_card) = cur.fetchone()
@@ -218,7 +274,7 @@ def find_single_block(table_curr, col_names, X_name, N, cur, dmeasure, policy):
         X_name: column name of the measure attribute
         N: number of dimension
         cur: cursor of database connection
-        dmeasure: "arithmetic" or "geometric", density measure
+        dmeasure: "arithmetic" or "geometric" or "suspicious", density measure
         policy: "cardinality" or "density"
     """
     ## initialize
@@ -284,7 +340,8 @@ def init_dcube_tables(table_name, table_curr, col_names, X_name, K, N, cur):
     """
     Initialize the tables for D-cube.
     Args:
-        table_name: name of relation
+        table_name: name of the relational table storing data
+        table_curr: name of the table that we will manipulate
         col_names: column names of the relation for the N dimensions
         X_name: column name of the measure attribute
         K: number of blocks
@@ -305,9 +362,14 @@ def init_dcube_tables(table_name, table_curr, col_names, X_name, K, N, cur):
     ## total Mass M_R and M_B
     cur.execute("INSERT INTO parameters (par) VALUES ('total_mass');")
     cur.execute("INSERT INTO parameters (par) VALUES ('B_mass');")
-    ## cardinality for B_1 ... B_N
+    ## create fields to store cardinality for B_1 ... B_N and R_1 ... R_N
     for n in range(N):    
         cur.execute("INSERT INTO parameters (par) VALUES ('card_B%d');" % n)
+        cur.execute("INSERT INTO parameters (par) VALUES ('card_R%d');" % n)
+
+    ## store the cardinality of R_1 ... R_N; these remain unchanged.
+    for n in range(N):
+        update_parameter(cur, 'card_R%d' % n, compute_card(cur, "R"+str(n)))
 
 
 def dcube(table_name, col_names, X_name, K, N, cur, 
@@ -324,7 +386,7 @@ def dcube(table_name, col_names, X_name, K, N, cur,
         K: number of blocks
         N: number of dimension
         cur: cursor of database connection
-        dmeasure: "arithmetic" or "geometric", density measure
+        dmeasure: "arithmetic" or "geometric" or "suspicious", density measure
         policy: "cardinality" or "density"
     """
     ## initialize needed tables
@@ -367,12 +429,18 @@ def dcube(table_name, col_names, X_name, K, N, cur,
             ("(SELECT 1 FROM block%d as B WHERE %s);" % 
                 (k, " and ".join([("R.%s=B.%s" % (col_names[n], col_names[n])) 
                                     for n in range(N)]))))
-
         ## clean up: drop the final_Bn and blockk tables
         cur.execute("DROP TABLE %s;" % 
                         (",".join(["final_B"+str(n) for n in range(N)])))
         cur.execute("DROP TABLE block%d;"%k)
 
+        ## if nothing left, then stop
+        R_card = compute_card(cur, table_curr)
+        # print ("After removing the block, %d entries are left." % R_card)
+        if R_card == 0:
+            print ("Algorithm stopped after finding %d blocks because no entries are left." %
+                (k+1))
+            break
 
     ## clean up: drop the created temporary tables
     cur.execute("DROP TABLE %s, parameters;" % table_curr)
