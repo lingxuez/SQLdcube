@@ -68,6 +68,10 @@ def dcube_run(dbname, user, port, file_name,
     DSN = "dbname=%s user=%s port=%s host='/tmp/'" % (dbname, user, port)
     with psycopg2.connect(DSN) as conn:
         with conn.cursor() as cur:
+            ## drop existing tables
+            cur.execute("DROP SCHEMA public CASCADE;")
+            cur.execute("CREATE SCHEMA public;")
+
             ## load data
             print ("Loading data from %s..." % file_name)
             load_table_from_file(table_name, 

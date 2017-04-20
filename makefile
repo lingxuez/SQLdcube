@@ -40,7 +40,7 @@ USERNAME=$(USER)
 PORT=15748
 K=1
 DMEASURE=suspicious
-POLICY=density
+POLICY=cardinality
 
 ## the following variables are only needed for user-specified input file
 N=3
@@ -73,11 +73,12 @@ tiny_darpa:
 
 
 darpa: 
-	python preprocess_darpa.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
-			-in data/darpa.csv -out data/darpa_cleaned.csv
+	#python preprocess_darpa.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
+	#		-in data/darpa.csv -out data/darpa_cleaned.csv
 
 	python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
 			-in data/darpa_cleaned.csv -K $(K) -N 3 \
-			-outdir darpa_out -dmeasure $(DMEASURE) -policy $(POLICY)
+			-outdir darpa_$(DMEASURE)_$(POLICY)_out \
+			-dmeasure $(DMEASURE) -policy $(POLICY)
 
 

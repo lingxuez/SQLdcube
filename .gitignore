@@ -1,4 +1,6 @@
 *.pyc
 data/
+darpa_*/
 *.csv
-test/
+tests/
+out/
