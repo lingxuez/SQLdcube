@@ -44,7 +44,7 @@ POLICY=cardinality
 
 ## the following variables are only needed for user-specified input file
 N=3
-OUTDIR=out/
+OUTDIR=tiny_out/
 INFILE=tests/test_data.csv
 
 all: start darpa stop
@@ -67,9 +67,12 @@ stop:
 	pg_ctl -D $(HOME)/826prj stop
 
 
-tiny_darpa: 
-	python preprocess_darpa.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
-			-in misc/tiny_darpa.csv -out misc/tiny_darpa_cleaned.csv
+# tiny_darpa: 
+# 	# python preprocess_darpa.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
+# 	# 		-in misc/tiny_darpa.csv -out misc/tiny_darpa_cleaned.csv
+# 	python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
+# 			-in misc/tiny_darpa.csv -K $(K) -N $(N) \
+# 			-outdir tiny_out -dmeasure $(DMEASURE) -policy $(POLICY)
 
 
 darpa: 

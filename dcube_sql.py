@@ -374,7 +374,8 @@ def init_dcube_tables(table_name, table_curr, col_names, X_name, K, N, cur):
 
 def dcube(table_name, col_names, X_name, K, N, cur, 
             dmeasure="arithmetic", policy="cardinality", 
-            outdir="out/", out_prefix="out"):
+            outdir="out/", out_prefix="out",
+            opt="copy"):
     """
     D-Cube algorithm. Find K dense blocks in a given tensor.
     Args:
@@ -388,6 +389,7 @@ def dcube(table_name, col_names, X_name, K, N, cur,
         cur: cursor of database connection
         dmeasure: "arithmetic" or "geometric" or "suspicious", density measure
         policy: "cardinality" or "density"
+        opt: optimization method: "copy" or "mark"
     """
     ## initialize needed tables
     table_curr = "ctable"
