@@ -202,7 +202,8 @@ def has_remained_B(N, cur):
     return False
 
 
-def init_B_tables(data_table, col_names, X_name, N, cur):
+def init_B_tables(data_table, col_names, X_name, N, cur, 
+            b_index, Bn_index):
     """
     Initialize and create the tables needed for find_single_block.
     Args:
@@ -211,9 +212,16 @@ def init_B_tables(data_table, col_names, X_name, N, cur):
         X_name: column name of the measure attribute
         N: number of dimensions
         cur: cursor for database connection
+        b_index: create an index for the i-th attribute in Btable
+        Bn_index: whether to create index on Bn
     """
     ## initialize the Btable; this table will be eliminated in the end
     cur.execute("CREATE TABLE Btable AS SELECT * FROM %s;" % data_table)
+
+    ## create index on the i-th attribute
+    if b_index >= 0 and b_index < N:
+        cur.execute("CREATE INDEX ON Btable (%s)" % (col_names[b_index]))
+        print ("created index on Btable (%s)" % col_names[b_index])
 
     ## total mass in Btable; initially equals to current total mass
     update_parameter(cur, 'B_mass', get_parameter(cur, 'total_mass'))
@@ -230,10 +238,17 @@ def init_B_tables(data_table, col_names, X_name, N, cur):
              + ("GROUP BY value;"))
         ## record its cardinality
         update_parameter(cur, 'card_B%d' % n, compute_card(cur, "B"+str(n)))
+        ## create index
+        if Bn_index:
+            cur.execute("CREATE INDEX ON B%d (value);" % n)
+            print ("created index on B%d (value) " % n)
+
+            cur.execute("CREATE INDEX ON B%d (mass);" % n)
+            print ("created index on B%d (mass) " % n)
 
 
 
-def recompute_Bmass(col_names, X_name, N, cur):
+def recompute_Bmass(col_names, X_name, N, cur, Bn_index):
     """
     After updating Btable, we need to re-compute the mass for each Bn=a.
     Args:
@@ -254,6 +269,11 @@ def recompute_Bmass(col_names, X_name, N, cur):
         cur.execute("CREATE TABLE B%d AS SELECT * FROM new_B;" % n)
         cur.execute("DROP TABLE new_B;")
 
+        ## create index
+        if Bn_index:
+            cur.execute("CREATE INDEX ON B%d (value);" % n)
+            cur.execute("CREATE INDEX ON B%d (mass);" % n)
+
 
 def get_next_Brow(Bn, cur):
     """
@@ -266,7 +286,8 @@ def get_next_Brow(Bn, cur):
     return cur.fetchone()
 
 
-def find_single_block(data_table, col_names, X_name, N, cur, dmeasure, policy):
+def find_single_block(data_table, col_names, X_name, N, cur, dmeasure, policy, 
+            b_index=-1, Bn_index=True):
     """
     Args:
         data_table: the current relation table (the relation "R" in paper)
@@ -276,9 +297,11 @@ def find_single_block(data_table, col_names, X_name, N, cur, dmeasure, policy):
         cur: cursor of database connection
         dmeasure: "arithmetic" or "geometric" or "suspicious", density measure
         policy: "cardinality" or "density"
+        b_index: create an index for the i-th attribute in Btable
+        Bn_index: whether to create index on Bn
     """
     ## initialize
-    init_B_tables(data_table, col_names, X_name, N, cur)
+    init_B_tables(data_table, col_names, X_name, N, cur, b_index, Bn_index)
     max_dens = compute_density(cur, N, dmeasure)
     curr_order, max_order = 1, 1
 
@@ -322,7 +345,7 @@ def find_single_block(data_table, col_names, X_name, N, cur, dmeasure, policy):
             curr_row = get_next_Brow(B_rm, cur)
 
         ## because we have changed Btable, we need to re-compute the mass
-        recompute_Bmass(col_names, X_name, N, cur)
+        recompute_Bmass(col_names, X_name, N, cur, Bn_index)
 
       
     ## reconstruct the dense block
@@ -336,7 +359,7 @@ def find_single_block(data_table, col_names, X_name, N, cur, dmeasure, policy):
                     (",".join(["B"+str(n) for n in range(N)])))
 
 
-def init_dcube_tables(data_table, col_names, X_name, K, N, cur):
+def init_dcube_tables(data_table, col_names, X_name, K, N, cur, para_index=True):
     """
     Initialize the tables for D-cube.
     Args:
@@ -346,6 +369,7 @@ def init_dcube_tables(data_table, col_names, X_name, K, N, cur):
         K: number of blocks
         N: number of dimension
         cur: cursor of database connection
+        para_index: whether to create index for parameters
     """
     ## create tables Rn to store the unique values in each dimension
     for n in range(N):
@@ -362,6 +386,11 @@ def init_dcube_tables(data_table, col_names, X_name, K, N, cur):
         cur.execute("INSERT INTO parameters (par) VALUES ('card_B%d');" % n)
         cur.execute("INSERT INTO parameters (par) VALUES ('card_R%d');" % n)
 
+    ## create index
+    if para_index:
+        print "created hash index on parameters."
+        cur.execute("CREATE INDEX ON parameters USING hash (par);")
+
     ## store the cardinality of R_1 ... R_N; these remain unchanged.
     for n in range(N):
         update_parameter(cur, 'card_R%d' % n, compute_card(cur, "R"+str(n)))
@@ -370,7 +399,8 @@ def init_dcube_tables(data_table, col_names, X_name, K, N, cur):
 def dcube(original_data_table, col_names, X_name, K, N, cur, 
             dmeasure="arithmetic", policy="cardinality", 
             outdir="out/", out_prefix="out",
-            opt="copy", verbose=True):
+            opt="copy", verbose=True,
+            para_index=True, r_index=-1, b_index=0, Bn_index=True):
     """
     D-Cube algorithm. Find K dense blocks in a given tensor.
     Args:
@@ -385,22 +415,32 @@ def dcube(original_data_table, col_names, X_name, K, N, cur,
         dmeasure: "arithmetic" or "geometric" or "suspicious", density measure
         policy: "cardinality" or "density"
         opt: optimization method: "copy" or "mark"
+        para_index: whether to create a hash index for parameters
+        r_index: create an index for the i-th attribute in data_table
+        b_index: create an index for the i-th attribute in Btable
+        Bn_index: whether to create index on Bn
     """
     ## copy the original data table; the new data_table will be modified
     data_table = "mydata"
     cur.execute("CREATE TABLE %s AS SELECT * FROM %s;" % (data_table, original_data_table))
 
+    ## create index on the i-th attribute
+    if r_index >= 0 and r_index < N:
+        print ("created index in Rtable on %s" % col_names[r_index])
+        cur.execute("CREATE INDEX ON %s USING hash (%s)" % (data_table, col_names[r_index]))
+
     ## initialize needed tables
-    init_dcube_tables(data_table, col_names, X_name, K, N, cur)
+    init_dcube_tables(data_table, col_names, X_name, K, N, cur, para_index)
 
     ## repeatedly find dense sub-blocks
     for k in range(K):
         ## update total mass according to current table
-        cur.execute(("UPDATE parameters SET value=(SELECT sum(%s) FROM %s) " % (X_name, data_table)) + 
-                    " WHERE par='total_mass';" )
+        cur.execute(("UPDATE parameters SET value=(SELECT sum(%s) FROM %s) " 
+            % (X_name, data_table)) + " WHERE par='total_mass';" )
 
         ## find single block
-        find_single_block(data_table, col_names, X_name, N, cur, dmeasure, policy)
+        find_single_block(data_table, col_names, X_name, N, cur, dmeasure, policy, 
+                        b_index, Bn_index)
 
         ## the found block
         cur.execute(("CREATE TABLE block%d AS " % k) + 

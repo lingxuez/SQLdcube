@@ -120,6 +120,13 @@ def dcube_realdata(dbname, user, port, file_name, K, data="darpa", sep=",",
                         (",".join(col_names), X_name, ",".join(col_names)))
             cur.execute("DROP TABLE rawData;")
 
+            # ## unique values
+            # for i in range(N):
+            #     print col_names[i]
+            #     cur.execute("SELECT count(*) FROM (SELECT DISTINCT %s FROM %s) AS R;" 
+            #                 % (col_names[i], data_table))
+            #     print cur.fetchall()
+
             ## D-CUBE
             print "Performing D-Cube..."
             file_prefix=(file_name.rsplit("/")[len(file_name.rsplit("/"))-1]).split(".csv")[0]
