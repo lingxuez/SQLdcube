@@ -41,11 +41,11 @@ PORT=15748
 K=1
 DMEASURE=suspicious
 POLICY=cardinality
+DATA=darpa
 
-## the following variables are only needed for user-specified input file
 N=3
-OUTDIR=tiny_out/
-INFILE=tests/test_data.csv
+OUTDIR=tests/test_out
+INFILE=tests/test_data/test_data.csv
 
 all: start darpa stop
 
@@ -59,7 +59,7 @@ start:
 	PGPORT=$(PORT) PGHOST=/tmp pg_ctl -D $(HOME)/826prj -o '-k /tmp' start
 	
 run: 
-	python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
+	python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) -data 'test' \
 			-in $(INFILE) -K $(K) -N $(N) \
 			-outdir $(OUTDIR) -dmeasure $(DMEASURE) -policy $(POLICY)
 
@@ -67,21 +67,18 @@ stop:
 	pg_ctl -D $(HOME)/826prj stop
 
 
-# tiny_darpa: 
-# 	# python preprocess_darpa.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
-# 	# 		-in misc/tiny_darpa.csv -out misc/tiny_darpa_cleaned.csv
-# 	python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
-# 			-in misc/tiny_darpa.csv -K $(K) -N $(N) \
-# 			-outdir tiny_out -dmeasure $(DMEASURE) -policy $(POLICY)
+tiny_darpa: 
+	python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
+			-in tests/tiny_darpa.csv -K $(K) -data darpa \
+			-outdir tests/ -dmeasure $(DMEASURE) -policy $(POLICY)
 
 
-darpa: 
+realdata: 
 	#python preprocess_darpa.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
 	#		-in data/darpa.csv -out data/darpa_cleaned.csv
 
 	python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
-			-in data/darpa_cleaned.csv -K $(K) -N 3 \
-			-outdir darpa_$(DMEASURE)_$(POLICY)_out \
+			-in $(INFILE) -K $(K) -data $(DATA) -outdir $(OUTDIR) \
 			-dmeasure $(DMEASURE) -policy $(POLICY)
 
 

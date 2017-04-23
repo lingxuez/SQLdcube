@@ -202,18 +202,18 @@ def has_remained_B(N, cur):
     return False
 
 
-def init_B_tables(table_curr, col_names, X_name, N, cur):
+def init_B_tables(data_table, col_names, X_name, N, cur):
     """
     Initialize and create the tables needed for find_single_block.
     Args:
-        table_curr: the table "R" in paper
+        data_table: the table "R" in paper
         col_names: list of column names, with length N
         X_name: column name of the measure attribute
         N: number of dimensions
         cur: cursor for database connection
     """
     ## initialize the Btable; this table will be eliminated in the end
-    cur.execute("CREATE TABLE Btable AS SELECT * FROM %s;" % table_curr)
+    cur.execute("CREATE TABLE Btable AS SELECT * FROM %s;" % data_table)
 
     ## total mass in Btable; initially equals to current total mass
     update_parameter(cur, 'B_mass', get_parameter(cur, 'total_mass'))
@@ -266,10 +266,10 @@ def get_next_Brow(Bn, cur):
     return cur.fetchone()
 
 
-def find_single_block(table_curr, col_names, X_name, N, cur, dmeasure, policy):
+def find_single_block(data_table, col_names, X_name, N, cur, dmeasure, policy):
     """
     Args:
-        table_curr: the current relation table (the relation "R" in paper)
+        data_table: the current relation table (the relation "R" in paper)
         col_names: lisf of column names of the relation, with length N
         X_name: column name of the measure attribute
         N: number of dimension
@@ -278,7 +278,7 @@ def find_single_block(table_curr, col_names, X_name, N, cur, dmeasure, policy):
         policy: "cardinality" or "density"
     """
     ## initialize
-    init_B_tables(table_curr, col_names, X_name, N, cur)
+    init_B_tables(data_table, col_names, X_name, N, cur)
     max_dens = compute_density(cur, N, dmeasure)
     curr_order, max_order = 1, 1
 
@@ -336,26 +336,21 @@ def find_single_block(table_curr, col_names, X_name, N, cur, dmeasure, policy):
                     (",".join(["B"+str(n) for n in range(N)])))
 
 
-def init_dcube_tables(table_name, table_curr, col_names, X_name, K, N, cur):
+def init_dcube_tables(data_table, col_names, X_name, K, N, cur):
     """
     Initialize the tables for D-cube.
     Args:
-        table_name: name of the relational table storing data
-        table_curr: name of the table that we will manipulate
+        data_table: name of the relational table storing data
         col_names: column names of the relation for the N dimensions
         X_name: column name of the measure attribute
         K: number of blocks
         N: number of dimension
         cur: cursor of database connection
     """
-    ## make a copy of the original table to avoid changing the original data table; 
-    ## the copied table will be changed.
-    cur.execute("CREATE TABLE %s AS SELECT * FROM %s;" % (table_curr, table_name))
-
     ## create tables Rn to store the unique values in each dimension
     for n in range(N):
         cur.execute("CREATE TABLE R%d AS SELECT DISTINCT %s as value FROM %s " % 
-                    (n, col_names[n], table_curr))
+                    (n, col_names[n], data_table))
 
     ## create a table for global parameters
     cur.execute("CREATE TABLE parameters (par varchar(20), value double precision);")
@@ -372,14 +367,14 @@ def init_dcube_tables(table_name, table_curr, col_names, X_name, K, N, cur):
         update_parameter(cur, 'card_R%d' % n, compute_card(cur, "R"+str(n)))
 
 
-def dcube(table_name, col_names, X_name, K, N, cur, 
+def dcube(original_data_table, col_names, X_name, K, N, cur, 
             dmeasure="arithmetic", policy="cardinality", 
             outdir="out/", out_prefix="out",
-            opt="copy"):
+            opt="copy", verbose=True):
     """
     D-Cube algorithm. Find K dense blocks in a given tensor.
     Args:
-        table_name: name of the relation, it has N+1 columns, 
+        data_table: name of the relation, it has N+1 columns, 
                 where the first N columns for the N dimensions with names col_names,
                 and the last column specifying the measure attribute with name X_name.
         col_names: column names of the relation for the N dimensions
@@ -391,34 +386,38 @@ def dcube(table_name, col_names, X_name, K, N, cur,
         policy: "cardinality" or "density"
         opt: optimization method: "copy" or "mark"
     """
+    ## copy the original data table; the new data_table will be modified
+    data_table = "mydata"
+    cur.execute("CREATE TABLE %s AS SELECT * FROM %s;" % (data_table, original_data_table))
+
     ## initialize needed tables
-    table_curr = "ctable"
-    init_dcube_tables(table_name, table_curr, col_names, X_name, K, N, cur)
+    init_dcube_tables(data_table, col_names, X_name, K, N, cur)
 
     ## repeatedly find dense sub-blocks
     for k in range(K):
         ## update total mass according to current table
-        cur.execute(("UPDATE parameters SET value=(SELECT sum(%s) FROM %s) " % (X_name, table_curr)) + 
+        cur.execute(("UPDATE parameters SET value=(SELECT sum(%s) FROM %s) " % (X_name, data_table)) + 
                     " WHERE par='total_mass';" )
 
         ## find single block
-        find_single_block(table_curr, col_names, X_name, N, cur, dmeasure, policy)
+        find_single_block(data_table, col_names, X_name, N, cur, dmeasure, policy)
 
         ## the found block
         cur.execute(("CREATE TABLE block%d AS " % k) + 
-                    ("SELECT %s FROM %s as R, %s " % 
-                                (",".join(col_names), table_name, ## note: original R
+                    ("SELECT %s FROM %s as R, %s " %  
+                                (",".join(col_names), original_data_table,
                                 ",".join(["final_B"+str(n) for n in range(N)]))) + 
                     ("WHERE %s;" % 
                     " and ".join([("R.%s=final_B%d.value" % (col_names[n], n)) for n in range(N)]))
                     )
 
-        ## print result to stdout
-        print ("Found block %d:" % (k+1))
-        for n in range(N):        
-            print ("\tdimension %d:" % n)
-            cur.execute("SELECT * FROM final_B%d" % n)
-            print "\t", cur.fetchall()
+        ## print block results to stdout
+        if verbose:
+            print ("Found block %d:" % (k+1))
+            for n in range(N):        
+                print ("\tdimension %d:" % n)
+                cur.execute("SELECT * FROM final_B%d" % n)
+                print "\t", cur.fetchall()
                 
         ## save the block to disk
         outfile = outdir+"/"+out_prefix+"_block"+str(k+1)+".csv"
@@ -427,25 +426,24 @@ def dcube(table_name, col_names, X_name, K, N, cur,
         print ("The %d-th block is written to file '%s'." % (k+1, outfile))
         
         ## remove the entries in the found block from current table
-        cur.execute(("DELETE FROM %s as R WHERE EXISTS " % table_curr) + 
+        cur.execute(("DELETE FROM %s as R WHERE EXISTS " % data_table) + 
             ("(SELECT 1 FROM block%d as B WHERE %s);" % 
                 (k, " and ".join([("R.%s=B.%s" % (col_names[n], col_names[n])) 
                                     for n in range(N)]))))
-        ## clean up: drop the final_Bn and blockk tables
+
+        ## clean up: drop the final_Bn and block-k tables
         cur.execute("DROP TABLE %s;" % 
                         (",".join(["final_B"+str(n) for n in range(N)])))
         cur.execute("DROP TABLE block%d;"%k)
 
         ## if nothing left, then stop
-        R_card = compute_card(cur, table_curr)
+        R_card = compute_card(cur, data_table)
         # print ("After removing the block, %d entries are left." % R_card)
         if R_card == 0:
             print ("Algorithm stopped after finding %d blocks because no entries are left." %
                 (k+1))
             break
 
-    ## clean up: drop the created temporary tables
-    cur.execute("DROP TABLE %s, parameters;" % table_curr)
-    cur.execute("DROP TABLE %s;" % ",".join(["R"+str(n) for n in range(N)]))
-
+    ## clean up: drop the temporary tables
+    cur.execute("DROP TABLE %s, parameters, %s;" % (",".join(["R"+str(n) for n in range(N)]), data_table))
 
