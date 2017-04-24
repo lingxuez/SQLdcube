@@ -15,6 +15,7 @@
 ## DMEASURE: 'arithmetic' or 'geometric' or 'suspicious'
 ## POLICY: 'density' or 'cardinality'
 ## K: number of dense blocks
+## DATA: dataset to use, 'darpa' or 'wiki' or 'amazon' or 'yelp' or 'airforce'
 ##
 ##############################################
 ##
@@ -37,26 +38,32 @@
 
 DBNAME=$(USER)
 USERNAME=$(USER)
-PORT=15748
+PORT=5432
 K=1
-DMEASURE=suspicious
-POLICY=cardinality
-DATA=darpa
 
-N=3
-OUTDIR=tests/test_out
-INFILE=tests/test_data/test_data.csv
+## 'arithmetic' or 'geometric'
+DMEASURE=arithmetic
+POLICY=density
 
-all: start darpa stop
+## 'darpa' or 'wiki' or 'amazon' or 'yelp' or 'airforce'
+DATA=amazon
+OUTDIR=yelp_out/
+INFILE=data/clean_amazon.csv
+
+# N=3
+# OUTDIR=tests/
+# INFILE=tests/test_data/test_data.csv
+
+all: start tiny_darpa stop
 
 setup:
-	PGPORT=$(PORT) PGHOST=/tmp initdb $(HOME)/826prj 
-	PGPORT=$(PORT) PGHOST=/tmp pg_ctl -D $(HOME)/826prj -o '-k /tmp' start 
+	PGPORT=$(PORT) PGHOST=/tmp initdb $(HOME)/826prj2 
+	PGPORT=$(PORT) PGHOST=/tmp pg_ctl -D $(HOME)/826prj2 -o '-k /tmp' start 
 	createdb $(DBNAME)
 
 
 start:
-	PGPORT=$(PORT) PGHOST=/tmp pg_ctl -D $(HOME)/826prj -o '-k /tmp' start
+	PGPORT=$(PORT) PGHOST=/tmp pg_ctl -D $(HOME)/826prj2 -o '-k /tmp' start
 	
 run: 
 	python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) -data 'test' \
@@ -64,7 +71,7 @@ run:
 			-outdir $(OUTDIR) -dmeasure $(DMEASURE) -policy $(POLICY)
 
 stop:
-	pg_ctl -D $(HOME)/826prj stop
+	pg_ctl -D $(HOME)/826prj2 stop
 
 
 tiny_darpa: 
@@ -72,13 +79,21 @@ tiny_darpa:
 			-in tests/tiny_darpa.csv -K $(K) -data darpa \
 			-outdir tests/ -dmeasure $(DMEASURE) -policy $(POLICY)
 
+testdata: 
+	python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
+			-in tests/test_data/test_data_1.csv -K 2 -data test \
+			-outdir tests/test_out -dmeasure $(DMEASURE) -policy $(POLICY)
 
 realdata: 
-	#python preprocess_darpa.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
-	#		-in data/darpa.csv -out data/darpa_cleaned.csv
-
 	python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
 			-in $(INFILE) -K $(K) -data $(DATA) -outdir $(OUTDIR) \
 			-dmeasure $(DMEASURE) -policy $(POLICY)
+
+clean:
+	rm *.pyc
+
+all.tar:
+	tar -zcvf dcube.tar.gz makefile *.py
+
 
 

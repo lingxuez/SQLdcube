@@ -20,7 +20,7 @@ from dcube_sql import *
 
 
 def dcube_test(dbname, user, port, file_name, K, N, sep=",",
-                dmeasure="arithmetic", policy="cardinality", outdir="out/"):
+                dmeasure="arithmetic", policy="cardinality", outdir="out/", opt="mark"):
     """
     Dense subtensor mining using D-cube.
     Args:
@@ -43,9 +43,11 @@ def dcube_test(dbname, user, port, file_name, K, N, sep=",",
     DSN = "dbname=%s user=%s port=%s host='/tmp/'" % (dbname, user, port)
     with psycopg2.connect(DSN) as conn:
         with conn.cursor() as cur:
-            ## drop existing tables in database
-            cur.execute("DROP SCHEMA public CASCADE;")
-            cur.execute("CREATE SCHEMA public;")
+            # ## drop existing tables in database
+            # cur.execute("DROP SCHEMA public CASCADE;")
+            # cur.execute("CREATE SCHEMA public;")
+
+
 
             ## load data from file
             print ("Loading data from %s..." % file_name)
@@ -57,7 +59,7 @@ def dcube_test(dbname, user, port, file_name, K, N, sep=",",
             print "Performing D-Cube..."
             file_prefix=(file_name.rsplit("/")[len(file_name.rsplit("/"))-1]).split(".csv")[0]
             dcube(data_table, col_names, X_name, K, N, cur, dmeasure, policy,
-                outdir=outdir, out_prefix=file_prefix, verbose=True)
+                outdir=outdir, out_prefix=file_prefix, verbose=True, opt=opt)
 
             ## clean up
             cur.execute("DROP TABLE %s;" % data_table)
@@ -70,10 +72,22 @@ def info_realdata(data="darpa"):
         data: "darpa"
 
     """
+    data_table = data
     if data == "darpa":
-        data_table = "darpa"
         N = 3
         col_names = ["src", "dst", "time"]
+    elif data == "wiki":
+        N = 3
+        col_names = ["usr", "page", "time"]
+    elif data == "amazon":
+        N = 4
+        col_names = ["usr", "item", "time", "rating"]
+    elif data == "yelp":
+        N = 4
+        col_names = ["usr", "business", "time", "rating"]
+    elif data == "airforce":
+        N = 7
+        col_names = ["protocol", "service", "src", "dst", "flag", "host", "srv"]
     else:
         print "Invalid dataset name."
 
@@ -82,7 +96,7 @@ def info_realdata(data="darpa"):
 
 
 def dcube_realdata(dbname, user, port, file_name, K, data="darpa", sep=",",
-                dmeasure="arithmetic", policy="cardinality", outdir="out/"):
+                dmeasure="arithmetic", policy="cardinality", outdir="out/", opt="mark"):
     """
     Dense subtensor mining using D-cube.
     Args:
@@ -96,7 +110,7 @@ def dcube_realdata(dbname, user, port, file_name, K, data="darpa", sep=",",
     """
     ## column names
     (data_table, N, col_names) = info_realdata(data=data)
-    columns = [col_names[i] + " varchar(40)" for i in range(N)]
+    columns = [col_names[i] + " varchar(80)" for i in range(N)]
     X_name = "measure" ## name for measure attribute
     X_fmt = "double precision" ## type for measure attribute
 
@@ -120,19 +134,13 @@ def dcube_realdata(dbname, user, port, file_name, K, data="darpa", sep=",",
                         (",".join(col_names), X_name, ",".join(col_names)))
             cur.execute("DROP TABLE rawData;")
 
-            # ## unique values
-            # for i in range(N):
-            #     print col_names[i]
-            #     cur.execute("SELECT count(*) FROM (SELECT DISTINCT %s FROM %s) AS R;" 
-            #                 % (col_names[i], data_table))
-            #     print cur.fetchall()
 
             ## D-CUBE
-            print "Performing D-Cube..."
+            print ("Performing D-Cube on data %s ..." % data)
             file_prefix=(file_name.rsplit("/")[len(file_name.rsplit("/"))-1]).split(".csv")[0]
 
             dcube(data_table, col_names, X_name, K, N, cur, dmeasure, policy,
-                outdir=outdir, out_prefix=file_prefix, verbose=False)
+                outdir=outdir, out_prefix=file_prefix, verbose=False, opt=opt)
 
             ## clean up
             cur.execute("DROP TABLE %s;" % data_table)
@@ -144,12 +152,13 @@ if __name__ == "__main__":
     parser.add_argument("-user", "--user", type=str, default="postgres")
     parser.add_argument("-port", "--port", type=str, default="5432")
     parser.add_argument("-data", "--data", type=str, default="test")
-    parser.add_argument("-in", "--file_name", type=str, default="tests/test_data_2.csv")
+    parser.add_argument("-in", "--file_name", type=str, default="tests/test_data.csv")
     parser.add_argument("-K", "--K", type=int, default=1)
-    parser.add_argument("-N", "--N", type=int, default=1)
+    parser.add_argument("-N", "--N", type=int, default=3)
     parser.add_argument("-outdir", "--outdir", type=str, default="out/")
     parser.add_argument("-dmeasure", "--dmeasure", type=str, default="arithmetic")
     parser.add_argument("-policy", "--policy", type=str, default="density")
+    parser.add_argument("-opt", "--opt", type=str, default="copy")
     args = parser.parse_args()
 
     ## check validity of input
@@ -168,9 +177,9 @@ if __name__ == "__main__":
     ## D-cube
     if args.data == "test":
         dcube_test(args.dbname, args.user, args.port, args.file_name, args.K, args.N,
-                dmeasure=args.dmeasure, policy=args.policy, outdir=args.outdir)
+                dmeasure=args.dmeasure, policy=args.policy, outdir=args.outdir, opt=args.opt)
     else:
         dcube_realdata(args.dbname, args.user, args.port, args.file_name, args.K, args.data,
-                dmeasure=args.dmeasure, policy=args.policy, outdir=args.outdir)
+                dmeasure=args.dmeasure, policy=args.policy, outdir=args.outdir, opt=args.opt)
 
 
