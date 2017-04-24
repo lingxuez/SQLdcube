@@ -46,9 +46,9 @@ DMEASURE=arithmetic
 POLICY=density
 
 ## 'darpa' or 'wiki' or 'amazon' or 'yelp' or 'airforce'
-DATA=amazon
-OUTDIR=yelp_out/
-INFILE=data/clean_amazon.csv
+DATA=airforce
+OUTDIR=airforce_out/
+INFILE=data/mid_airforce.csv
 
 # N=3
 # OUTDIR=tests/
@@ -82,7 +82,10 @@ tiny_darpa:
 testdata: 
 	python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
 			-in tests/test_data/test_data_1.csv -K 2 -data test \
-			-outdir tests/test_out -dmeasure $(DMEASURE) -policy $(POLICY)
+			-outdir tests/test_out -dmeasure suspicious -policy density
+	python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
+			-in tests/test_data/test_data.csv -K 2 -data test \
+			-outdir tests/test_out -dmeasure arithmetic -policy cardinality
 
 realdata: 
 	python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
@@ -90,10 +93,10 @@ realdata:
 			-dmeasure $(DMEASURE) -policy $(POLICY)
 
 clean:
-	rm *.pyc
+	@rm *.pyc
 
 all.tar:
-	tar -zcvf dcube.tar.gz makefile *.py
+	@tar -zcvf dcube.tar.gz makefile *.py
 
 
 

@@ -1,3 +1,4 @@
+###########################################
 ## D-Cube for dense sub-block detection.
 ##
 ## Usage: 
@@ -14,9 +15,49 @@
 ##   -outdir: output directory
 ##   -dmeasure: "arithmetic" or "geometric" or "suspicious"
 ##   -policy: "density" or "cardinality"
+##########################################
 
 import argparse, os, sys
-from dcube_sql import *
+from dcube_sql_mark import *
+from dcube_sql_copy import *
+
+def dcube(data_table, col_names, X_name, K, N, cur, 
+            dmeasure="arithmetic", policy="cardinality", 
+            outdir="out/", out_prefix="out",
+            opt="mark", verbose=True,
+            para_index=True, r_index=-1, b_index=2, Bn_index=True):
+    """
+    D-Cube algorithm. Find K dense blocks in a given tensor.
+    Args:
+        data_table: name of the relation, it has N+1 columns, 
+                where the first N columns for the N dimensions with names col_names,
+                and the last column specifying the measure attribute with name X_name.
+        col_names: column names of the relation for the N dimensions
+        X_name: column name of the measure attribute
+        K: number of blocks
+        N: number of dimension
+        cur: cursor of database connection
+        dmeasure: "arithmetic" or "geometric" or "suspicious", density measure
+        policy: "cardinality" or "density"
+        opt: optimization method: "copy" or "mark"
+        para_index: whether to create a hash index for parameters
+        r_index: create an index for the i-th attribute in data_table
+        b_index: create an index for the i-th attribute in Btable
+        Bn_index: whether to create index on Bn
+    """
+    if opt == "mark":
+        print "Using 'Mark' implementation."
+        dcube_mark(data_table, col_names, X_name, K, N, cur, 
+            dmeasure, policy, outdir, out_prefix,
+            verbose, para_index, r_index, b_index, Bn_index)
+    elif opt == "copy":
+        print "Using 'Copy' implementation."
+        dcube_copy(data_table, col_names, X_name, K, N, cur, 
+            dmeasure, policy, outdir, out_prefix,
+            verbose, para_index, r_index, b_index, Bn_index)
+    else:
+        print "ERROR: -opt must be either 'mark' or 'copy'."
+
 
 
 def dcube_test(dbname, user, port, file_name, K, N, sep=",",
@@ -43,11 +84,9 @@ def dcube_test(dbname, user, port, file_name, K, N, sep=",",
     DSN = "dbname=%s user=%s port=%s host='/tmp/'" % (dbname, user, port)
     with psycopg2.connect(DSN) as conn:
         with conn.cursor() as cur:
-            # ## drop existing tables in database
-            # cur.execute("DROP SCHEMA public CASCADE;")
-            # cur.execute("CREATE SCHEMA public;")
-
-
+            ## drop existing tables in database
+            cur.execute("DROP SCHEMA public CASCADE;")
+            cur.execute("CREATE SCHEMA public;")
 
             ## load data from file
             print ("Loading data from %s..." % file_name)
@@ -89,7 +128,7 @@ def info_realdata(data="darpa"):
         N = 7
         col_names = ["protocol", "service", "src", "dst", "flag", "host", "srv"]
     else:
-        print "Invalid dataset name."
+        print "Invalid -data option."
 
     return (data_table, N, col_names)
         
@@ -158,7 +197,7 @@ if __name__ == "__main__":
     parser.add_argument("-outdir", "--outdir", type=str, default="out/")
     parser.add_argument("-dmeasure", "--dmeasure", type=str, default="arithmetic")
     parser.add_argument("-policy", "--policy", type=str, default="density")
-    parser.add_argument("-opt", "--opt", type=str, default="copy")
+    parser.add_argument("-opt", "--opt", type=str, default="mark")
     args = parser.parse_args()
 
     ## check validity of input
