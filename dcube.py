@@ -15,6 +15,10 @@
 ##   -outdir: output directory
 ##   -dmeasure: "arithmetic" or "geometric" or "suspicious"
 ##   -policy: "density" or "cardinality"
+##   -opt: implementation method, "copy" or "mark"; "copy" is usually more efficient.
+##   -data: "custom" if using custom input dataset;
+##       the algorithm also provides 5 built-in scenarios, including
+##       "darpa", "airforce", "wiki", "amazon", "yelp".
 ##########################################
 
 import argparse, os, sys
@@ -24,7 +28,7 @@ from dcube_sql_copy import *
 def dcube(data_table, col_names, X_name, K, N, cur, 
             dmeasure="arithmetic", policy="cardinality", 
             outdir="out/", out_prefix="out",
-            opt="mark", verbose=True,
+            opt="copy", verbose=True,
             para_index=True, r_index=-1, b_index=2, Bn_index=True):
     """
     D-Cube algorithm. Find K dense blocks in a given tensor.
@@ -39,6 +43,8 @@ def dcube(data_table, col_names, X_name, K, N, cur,
         cur: cursor of database connection
         dmeasure: "arithmetic" or "geometric" or "suspicious", density measure
         policy: "cardinality" or "density"
+        outdir: output directory
+        out_prefix: prefix of the output results
         opt: optimization method: "copy" or "mark"
         para_index: whether to create a hash index for parameters
         r_index: create an index for the i-th attribute in data_table
@@ -46,12 +52,12 @@ def dcube(data_table, col_names, X_name, K, N, cur,
         Bn_index: whether to create index on Bn
     """
     if opt == "mark":
-        print "Using 'Mark' implementation."
+        print "\tUsing 'Mark' implementation."
         dcube_mark(data_table, col_names, X_name, K, N, cur, 
             dmeasure, policy, outdir, out_prefix,
             verbose, para_index, r_index, b_index, Bn_index)
     elif opt == "copy":
-        print "Using 'Copy' implementation."
+        print "\tUsing 'Copy' implementation."
         dcube_copy(data_table, col_names, X_name, K, N, cur, 
             dmeasure, policy, outdir, out_prefix,
             verbose, para_index, r_index, b_index, Bn_index)
@@ -61,7 +67,7 @@ def dcube(data_table, col_names, X_name, K, N, cur,
 
 
 def dcube_test(dbname, user, port, file_name, K, N, sep=",",
-                dmeasure="arithmetic", policy="cardinality", outdir="out/", opt="mark"):
+                dmeasure="arithmetic", policy="density", outdir="out/", opt="copy"):
     """
     Dense subtensor mining using D-cube.
     Args:
@@ -108,34 +114,43 @@ def info_realdata(data="darpa"):
     """
     Get the information for real-world data sets.
     Args:
-        data: "darpa"
-
+        data: name of the real dataset
     """
     data_table = data
     if data == "darpa":
         N = 3
         col_names = ["src", "dst", "time"]
+        b_index = 2
+        dmeasure = "arithmetic"
     elif data == "wiki":
         N = 3
         col_names = ["usr", "page", "time"]
+        b_index = 2
+        dmeasure = "geometric"
     elif data == "amazon":
         N = 4
         col_names = ["usr", "item", "time", "rating"]
+        b_index = 0
+        dmeasure = "arithmetic"
     elif data == "yelp":
         N = 4
         col_names = ["usr", "business", "time", "rating"]
+        b_index = 0
+        dmeasure = "arithmetic"
     elif data == "airforce":
         N = 7
         col_names = ["protocol", "service", "src", "dst", "flag", "host", "srv"]
+        b_index = 4
+        dmeasure = "arithmetic"
     else:
         print "Invalid -data option."
 
-    return (data_table, N, col_names)
+    return (data_table, N, col_names, b_index, dmeasure)
         
 
 
-def dcube_realdata(dbname, user, port, file_name, K, data="darpa", sep=",",
-                dmeasure="arithmetic", policy="cardinality", outdir="out/", opt="mark"):
+def dcube_realdata(dbname, user, port, file_name, K, data="darpa", 
+            sep=",", outdir="out/", opt="copy"):
     """
     Dense subtensor mining using D-cube.
     Args:
@@ -143,12 +158,15 @@ def dcube_realdata(dbname, user, port, file_name, K, data="darpa", sep=",",
         user: user
         port: port number
         file_name: .csv file to load data
+        sep: delimiter for the input file; "," for .csv
         K: number of blocks to detect
-        dmeasure: "arithmetic" or "geometric" or "suspicious", density measure
-        policy: "cardinality" or "density"
+        data: name of the real dataset
     """
-    ## column names
-    (data_table, N, col_names) = info_realdata(data=data)
+    ## settings
+    policy="density"
+    (data_table, N, col_names, b_index, dmeasure) = info_realdata(data=data)
+
+    ## columns
     columns = [col_names[i] + " varchar(80)" for i in range(N)]
     X_name = "measure" ## name for measure attribute
     X_fmt = "double precision" ## type for measure attribute
@@ -179,7 +197,8 @@ def dcube_realdata(dbname, user, port, file_name, K, data="darpa", sep=",",
             file_prefix=(file_name.rsplit("/")[len(file_name.rsplit("/"))-1]).split(".csv")[0]
 
             dcube(data_table, col_names, X_name, K, N, cur, dmeasure, policy,
-                outdir=outdir, out_prefix=file_prefix, verbose=False, opt=opt)
+                outdir=outdir, out_prefix=file_prefix, verbose=False, opt=opt,
+                b_index=b_index)
 
             ## clean up
             cur.execute("DROP TABLE %s;" % data_table)
@@ -190,14 +209,14 @@ if __name__ == "__main__":
     parser.add_argument("-db", "--dbname", type=str, default="test")
     parser.add_argument("-user", "--user", type=str, default="postgres")
     parser.add_argument("-port", "--port", type=str, default="5432")
-    parser.add_argument("-data", "--data", type=str, default="test")
+    parser.add_argument("-data", "--data", type=str, default="custom")
     parser.add_argument("-in", "--file_name", type=str, default="tests/test_data.csv")
     parser.add_argument("-K", "--K", type=int, default=1)
     parser.add_argument("-N", "--N", type=int, default=3)
     parser.add_argument("-outdir", "--outdir", type=str, default="out/")
     parser.add_argument("-dmeasure", "--dmeasure", type=str, default="arithmetic")
     parser.add_argument("-policy", "--policy", type=str, default="density")
-    parser.add_argument("-opt", "--opt", type=str, default="mark")
+    parser.add_argument("-opt", "--opt", type=str, default="copy")
     args = parser.parse_args()
 
     ## check validity of input
@@ -214,11 +233,11 @@ if __name__ == "__main__":
         sys.exit(1)        
 
     ## D-cube
-    if args.data == "test":
+    if args.data == "custom":
         dcube_test(args.dbname, args.user, args.port, args.file_name, args.K, args.N,
                 dmeasure=args.dmeasure, policy=args.policy, outdir=args.outdir, opt=args.opt)
     else:
         dcube_realdata(args.dbname, args.user, args.port, args.file_name, args.K, args.data,
-                dmeasure=args.dmeasure, policy=args.policy, outdir=args.outdir, opt=args.opt)
+                outdir=args.outdir, opt=args.opt)
 
 

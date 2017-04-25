@@ -1,7 +1,9 @@
+#################################################
 ## D-CUBE
 ## using "Mark" impelemntation
 ##
 ## Dependency: Psycopg2 (Access PostgreSQL with Python)
+#################################################
 
 import psycopg2
 import math
@@ -10,8 +12,7 @@ from dcube_utils import *
 
 def dcube_mark(data_table, col_names, X_name, K, N, cur, 
             dmeasure="arithmetic", policy="cardinality", 
-            outdir="out/", out_prefix="out",
-            verbose=True,
+            outdir="out/", out_prefix="out", verbose=True,
             para_index=True, r_index=-1, b_index=-1, Bn_index=False):
     """
     D-Cube algorithm. Find K dense blocks in a given tensor.
@@ -37,8 +38,8 @@ def dcube_mark(data_table, col_names, X_name, K, N, cur,
 
     ## create index on the i-th attribute
     if r_index >= 0 and r_index < N:
-        print ("created index in Rtable on %s" % col_names[r_index])
         cur.execute("CREATE INDEX ON %s USING hash (%s);" % (data_table, col_names[r_index]))
+        print ("\tcreated index in Rtable on %s" % col_names[r_index])
 
     ## initialize needed tables
     init_dcube_tables_mark(data_table, col_names, X_name, K, N, cur, para_index)
@@ -56,21 +57,21 @@ def dcube_mark(data_table, col_names, X_name, K, N, cur,
             break
 
         ## find single block
+        print ("Start finding the %d-th block ..." % (k+1))
         find_single_block_mark(data_table, col_names, X_name, N, cur, dmeasure, policy, 
                         b_index, Bn_index)
 
         ## the found block
         cur.execute(("CREATE TABLE block%d AS " % k) + 
-                    ("SELECT %s FROM %s as R, %s " %  
-                                (",".join(col_names + [X_name]), data_table,
-                                ",".join(["final_B"+str(n) for n in range(N)]))) + 
-                    ("WHERE %s;" % 
-                    " and ".join([("R.%s=final_B%d.value" % (col_names[n], n)) for n in range(N)]))
-                    )
+               ("SELECT %s FROM %s as R, %s " %  
+                    (",".join(col_names + [X_name]), data_table,
+                         ",".join(["final_B"+str(n) for n in range(N)]))) + 
+               ("WHERE %s;" % 
+                    " and ".join([("R.%s=final_B%d.value" % (col_names[n], n)) for n in range(N)])))
 
         ## print block results to stdout
         if verbose:
-            print ("Found block %d:" % (k+1))
+            print ("\tFound block %d:" % (k+1))
             for n in range(N):        
                 print ("\tdimension %d:" % n)
                 cur.execute("SELECT * FROM final_B%d;" % n)
@@ -80,9 +81,8 @@ def dcube_mark(data_table, col_names, X_name, K, N, cur,
         outfile = outdir+"/"+out_prefix+"_block"+str(k+1)+".csv"
         with open(outfile, mode="wt") as fout:
             cur.copy_to(fout, ("block%d" % k), sep=',')
-        print ("The %d-th block is written to file '%s'." % (k+1, outfile))
-
-        
+        print ("\tThe %d-th block is written to file '%s'." % (k+1, outfile))
+  
         ## remove the entries in the found block from current table
         cur.execute(("UPDATE %s SET exists=0 WHERE EXISTS " % data_table) + 
             ("(SELECT 1 FROM block%d as B WHERE %s);" % 
@@ -90,25 +90,28 @@ def dcube_mark(data_table, col_names, X_name, K, N, cur,
                                     for n in range(N)]))))
 
         ## clean up: drop the final_Bn and block-k tables
-        cur.execute("DROP TABLE %s;" % 
-                        (",".join(["final_B"+str(n) for n in range(N)])))
+        for n in range(N):
+            cur.execute("DROP TABLE final_B%d;" % n)
         cur.execute("DROP TABLE block%d;"%k)
 
         ## if nothing left, then stop
         R_card = compute_card_mark(cur, data_table)
-        print ("After removing the block, %d entries are left." % R_card)
+        print ("\tAfter removing the block, %d entries are left." % R_card)
         if R_card == 0:
             print ("Algorithm stopped after finding %d blocks because no entries are left." %
                 (k+1))
             break
 
     ## clean up: drop the temporary tables
-    cur.execute("DROP TABLE %s, parameters;" % (",".join(["R"+str(n) for n in range(N)])))
+    cur.execute("DROP TABLE %s;" % data_table)
+    cur.execute("DROP TABLE parameters;")
+    for n in range(N):
+        cur.execute("DROP TABLE R%d;" % n)
 
 
 
 def find_single_block_mark(data_table, col_names, X_name, N, cur, dmeasure, policy, 
-            b_index=-1, Bn_index=True):
+            b_index, Bn_index):
     """
     Args:
         data_table: the current relation table (the relation "R" in paper)
@@ -138,7 +141,6 @@ def find_single_block_mark(data_table, col_names, X_name, N, cur, dmeasure, poli
         avg_mass = B_mass/float(card)
 
         ## repeatedly delete entries in B_rm
-        ## Note: this chunk of code is very inefficient!!!
         curr_row = get_next_Brow_mark(B_rm, cur)
         while curr_row and curr_row[1] <= avg_mass:
             (curr_value, curr_mass) = curr_row
@@ -159,7 +161,6 @@ def find_single_block_mark(data_table, col_names, X_name, N, cur, dmeasure, poli
         
             ## density after deleting
             density, _ = compute_density(cur, N, dmeasure)
-            # print "density, max_dens =", (density, max_dens)
             if density > max_dens:
                 max_dens, max_order = density, curr_order
 
@@ -175,9 +176,11 @@ def find_single_block_mark(data_table, col_names, X_name, N, cur, dmeasure, poli
              + ("WHERE R.value=rmOrder.value and rmOrder.dimension=%d and rmOrder.r >= %d;" 
                 % (n, max_order)))
 
-    ## clean up: drop the created temporary tables
-    cur.execute("DROP TABLE Btable, rmOrder, %s;" % 
-                    (",".join(["B"+str(n) for n in range(N)])))
+    ## clean up: drop the temporary tables
+    cur.execute("DROP TABLE Btable;")
+    cur.execute("DROP TABLE rmOrder;")
+    for n in range(N):
+        cur.execute("DROP TABLE B%d;" % n)
 
 
 
@@ -196,14 +199,11 @@ def init_B_tables_mark(data_table, col_names, X_name, N, cur,
     """
     ## initialize the Btable; this table will be eliminated in the end
     cur.execute("CREATE TABLE Btable AS SELECT * FROM %s WHERE exists = 1;" % data_table)
-    # cur.execute("SELECT * FROM %s;" % data_table)
-    # print "Btable"
-    # print cur.fetchall()
 
     ## create index on the i-th attribute
     if b_index >= 0 and b_index < N:
         cur.execute("CREATE INDEX ON Btable (%s);" % (col_names[b_index]))
-        print ("created index on Btable (%s)" % col_names[b_index])
+        print ("\tcreated index on Btable (%s)" % col_names[b_index])
 
     ## total mass in Btable; initially equals to current total mass
     update_parameter(cur, 'B_mass', get_parameter(cur, 'total_mass'))
@@ -212,19 +212,16 @@ def init_B_tables_mark(data_table, col_names, X_name, N, cur,
     cur.execute("CREATE TABLE rmOrder (value varchar(80), dimension int, r int);")
 
     ## create tables Bn(value, mass) to store all values in Rn and the mass
-    ## note that if a value is missing in Btable, we treat its mass as zero
     for n in range(N):
         cur.execute( ("CREATE TABLE B%d AS SELECT %s as value, exists, sum(%s) as mass " % 
             (n, col_names[n], X_name))
              + ("FROM Btable WHERE Btable.exists=1")
              + ("GROUP BY value, exists ORDER BY mass;"))
-
         ## record its cardinality
         update_parameter(cur, 'card_B%d' % n, compute_card_mark(cur, "B"+str(n)))
         ## create index
         if Bn_index:
             cur.execute("CREATE INDEX ON B%d (value);" % n)
-            cur.execute("CREATE INDEX ON B%d (mass);" % n)
 
 
 def recompute_Bmass_mark(col_names, X_name, N, cur, Bn_index):
@@ -235,28 +232,24 @@ def recompute_Bmass_mark(col_names, X_name, N, cur, Bn_index):
         X_name: column name of the measure attribute
         N: number of dimensions
         cur: cursor for database connection
+        Bn_index: whether to create index on Bn
     """
     for n in range(N):
         ## it's faster to re-create a new table than updating the old one
-        ## the cardinality is the same as the old Bn
-        ## if a value is missing in Btable, we treat its mass as zero
         cur.execute( ("CREATE TABLE new_B AS SELECT value, B%d.exists as exists, sum(%s) as mass " 
             % (n, X_name))
-             + ("FROM Btable JOIN B%d ON Btable.%s=B%d.value WHERE Btable.exists=1" % (n, col_names[n], n))
+             + ("FROM Btable JOIN B%d ON Btable.%s=B%d.value WHERE Btable.exists=1" % 
+                    (n, col_names[n], n))
              + ("GROUP BY value, B%d.exists ORDER BY mass;" % n))
         cur.execute("DROP TABLE B%d;" % n)
         cur.execute("CREATE TABLE B%d AS SELECT * FROM new_B;" % n)
         cur.execute("DROP TABLE new_B;")
-
         ## create index
         if Bn_index:
             cur.execute("CREATE INDEX ON B%d (value);" % n)
-            cur.execute("CREATE INDEX ON B%d (mass);" % n)
 
 
-
-
-def init_dcube_tables_mark(data_table, col_names, X_name, K, N, cur, para_index=True):
+def init_dcube_tables_mark(data_table, col_names, X_name, K, N, cur, para_index):
     """
     Initialize the tables for D-cube.
     Args:
@@ -285,8 +278,8 @@ def init_dcube_tables_mark(data_table, col_names, X_name, K, N, cur, para_index=
 
     ## create index
     if para_index:
-        print "created hash index on parameters."
         cur.execute("CREATE INDEX ON parameters USING hash (par);")
+        print "\tcreated hash index on parameters."
 
     ## store the cardinality of R_1 ... R_N; these remain unchanged.
     for n in range(N):

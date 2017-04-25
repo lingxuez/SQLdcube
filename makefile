@@ -39,20 +39,21 @@
 DBNAME=$(USER)
 USERNAME=$(USER)
 PORT=5432
-K=1
-
-## 'arithmetic' or 'geometric'
-DMEASURE=arithmetic
-POLICY=density
+K=20
 
 ## 'darpa' or 'wiki' or 'amazon' or 'yelp' or 'airforce'
 DATA=airforce
 OUTDIR=airforce_out/
-INFILE=data/mid_airforce.csv
+INFILE=data/airforce.csv
 
+## the following are ignored for realdata setting
 # N=3
 # OUTDIR=tests/
 # INFILE=tests/test_data/test_data.csv
+# ## 'arithmetic' or 'geometric'
+# DMEASURE=arithmetic
+# POLICY=density
+
 
 all: start tiny_darpa stop
 
@@ -75,7 +76,7 @@ stop:
 
 
 tiny_darpa: 
-	python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
+	time python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
 			-in tests/tiny_darpa.csv -K $(K) -data darpa \
 			-outdir tests/ -dmeasure $(DMEASURE) -policy $(POLICY)
 
@@ -88,9 +89,8 @@ testdata:
 			-outdir tests/test_out -dmeasure arithmetic -policy cardinality
 
 realdata: 
-	python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
-			-in $(INFILE) -K $(K) -data $(DATA) -outdir $(OUTDIR) \
-			-dmeasure $(DMEASURE) -policy $(POLICY)
+	@time python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
+			-in $(INFILE) -K $(K) -data $(DATA) -outdir $(OUTDIR)
 
 clean:
 	@rm *.pyc

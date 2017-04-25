@@ -1,7 +1,9 @@
+#################################################
 ## D-CUBE
 ## using "Copy" impelemntation
 ##
 ## Dependency: Psycopg2 (Access PostgreSQL with Python)
+##################################################
 
 import psycopg2
 import math
@@ -12,11 +14,11 @@ def dcube_copy(original_data_table, col_names, X_name, K, N, cur,
             dmeasure="arithmetic", policy="cardinality", 
             outdir="out/", out_prefix="out",
             verbose=True,
-            para_index=True, r_index=-1, b_index=2, Bn_index=True):
+            para_index=True, r_index=-1, b_index=0, Bn_index=True):
     """
     D-Cube algorithm. Find K dense blocks in a given tensor.
     Args:
-        data_table: name of the relation, it has N+1 columns, 
+        original_data_table: name of the data relation; it has N+1 columns, 
                 where the first N columns for the N dimensions with names col_names,
                 and the last column specifying the measure attribute with name X_name.
         col_names: column names of the relation for the N dimensions
@@ -26,6 +28,9 @@ def dcube_copy(original_data_table, col_names, X_name, K, N, cur,
         cur: cursor of database connection
         dmeasure: "arithmetic" or "geometric" or "suspicious", density measure
         policy: "cardinality" or "density"
+        outdir: output directory
+        out_prefix: prefix of the output results
+        verbose: whether to print the finded block to stdout
         para_index: whether to create a hash index for parameters
         r_index: create an index for the i-th attribute in data_table
         b_index: create an index for the i-th attribute in Btable
@@ -37,18 +42,20 @@ def dcube_copy(original_data_table, col_names, X_name, K, N, cur,
 
     ## create index on the i-th attribute
     if r_index >= 0 and r_index < N:
-        print ("created index in Rtable on %s" % col_names[r_index])
         cur.execute("CREATE INDEX ON %s USING hash (%s);" % (data_table, col_names[r_index]))
+        print ("\tcreated index in Rtable on %s" % col_names[r_index])
 
     ## initialize needed tables
     init_dcube_tables(data_table, col_names, X_name, K, N, cur, para_index)
 
     ## repeatedly find dense sub-blocks
+    R_card = compute_card(cur, data_table)
+    print ("\tStarted with %d entries." % R_card)
+
     for k in range(K):
         ## update total mass according to current table
         cur.execute(("UPDATE parameters SET value=(SELECT sum(%s) FROM %s) " 
             % (X_name, data_table)) + " WHERE par='total_mass';" )
-
         total_mass = get_parameter(cur, 'total_mass')
         if total_mass == 0:
             print ("Algorithm stopped after finding %d blocks because no mass is left." %
@@ -56,23 +63,21 @@ def dcube_copy(original_data_table, col_names, X_name, K, N, cur,
             break
 
         ## find single block
-        print "Start finding single block ..."
+        print ("Start finding the %d-th block ..." % (k+1))
         find_single_block(data_table, col_names, X_name, N, cur, dmeasure, policy, 
                         b_index, Bn_index)
-        print "finished."
 
-        ## the found block
+        ## cunstruct the dense block
         cur.execute(("CREATE TABLE block%d AS " % k) + 
-                    ("SELECT %s FROM %s as R, %s " %  
-                                (",".join(col_names + [X_name]), original_data_table,
+            ("SELECT %s FROM %s as R, %s " %  
+                        (",".join(col_names + [X_name]), original_data_table,
                                 ",".join(["final_B"+str(n) for n in range(N)]))) + 
-                    ("WHERE %s;" % 
-                    " and ".join([("R.%s=final_B%d.value" % (col_names[n], n)) for n in range(N)]))
-                    )
+            ("WHERE %s;" % 
+            " and ".join([("R.%s=final_B%d.value" % (col_names[n], n)) for n in range(N)])))
 
         ## print block results to stdout
         if verbose:
-            print ("Found block %d:" % (k+1))
+            print ("\tFound block %d:" % (k+1))
             for n in range(N):        
                 print ("\tdimension %d:" % n)
                 cur.execute("SELECT * FROM final_B%d;" % n)
@@ -82,9 +87,8 @@ def dcube_copy(original_data_table, col_names, X_name, K, N, cur,
         outfile = outdir+"/"+out_prefix+"_block"+str(k+1)+".csv"
         with open(outfile, mode="wt") as fout:
             cur.copy_to(fout, ("block%d" % k), sep=',')
-        print ("The %d-th block is written to file '%s'." % (k+1, outfile))
-
-        
+        print ("\tThe %d-th block is written to file '%s'." % (k+1, outfile))
+   
         ## remove the entries in the found block from current table
         condition = " and ".join(("R.%s=B.%s" % (col_names[n], col_names[n])) for n in range(N))
         cur.execute(("DELETE FROM %s as R WHERE EXISTS " % data_table) + 
@@ -95,9 +99,9 @@ def dcube_copy(original_data_table, col_names, X_name, K, N, cur,
             cur.execute("DROP TABLE final_B%d;" % n)
         cur.execute("DROP TABLE block%d;"%k)
 
-        ## if nothing left, then stop
+        ## if no entries are left in the table, then stop the loop
         R_card = compute_card(cur, data_table)
-        print ("After removing the block, %d entries are left." % R_card)
+        print ("\tAfter removing the block, %d entries are left." % R_card)
         if R_card == 0:
             print ("Algorithm stopped after finding %d blocks because no entries are left." %
                 (k+1))
@@ -135,16 +139,11 @@ def find_single_block(data_table, col_names, X_name, N, cur, dmeasure, policy,
         ## select dimension to remove
         n_rm = select_dimension(cur, N, policy, dmeasure)
         B_rm = ("B%d" % n_rm)
-        print ("\tdim %d," % n_rm),
-
-        # cur.execute("SELECT * FROM parameters;")
-        # print cur.fetchall()
 
         ## entries that have mass smaller than the average will be removed
         card = float(get_parameter(cur, par=("card_B%d" % n_rm)))
         B_mass = float(get_parameter(cur, par="B_mass"))
         avg_mass = B_mass/card
-        # print "avg_mass = ", avg_mass
 
         ## remove these entries from Btable
         cur.execute("UPDATE Btable SET %s=0 WHERE EXISTS " % (X_name)
@@ -153,7 +152,6 @@ def find_single_block(data_table, col_names, X_name, N, cur, dmeasure, policy,
 
         ## repeatedly delete entries in B_rm
         curr_row = get_next_Brow(B_rm, cur)
-        # print "curr_row = ", curr_row
         while curr_row and curr_row[1] <= avg_mass:
             (curr_value, curr_mass) = (curr_row[0], float(curr_row[1]))
 
@@ -164,7 +162,6 @@ def find_single_block(data_table, col_names, X_name, N, cur, dmeasure, policy,
             
             ## remove this entry from B_rm
             cur.execute("DELETE FROM %s WHERE value='%s';" % (B_rm, curr_value))
-            # cur.execute("UPDATE Btable SET %s=0 WHERE %s='%s';" % (X_name, col_names[n_rm], curr_value)) 
 
             ## compute the new density
             if dmeasure == "suspicious":
@@ -173,7 +170,6 @@ def find_single_block(data_table, col_names, X_name, N, cur, dmeasure, policy,
                 cur.execute("UPDATE parameters SET value=value-%f WHERE par='B_mass';" % curr_mass)
                 ## density after deleting
                 density, _ = compute_density(cur, N, dmeasure)
-
             ## for the other two density measures, we have simplier updating method
             elif dmeasure == "geometric":
                 if B_mass == 0:
@@ -183,7 +179,6 @@ def find_single_block(data_table, col_names, X_name, N, cur, dmeasure, policy,
                     density *= math.pow(card, 1.0/N)/math.pow(card-1, 1.0/N)
                 card -= 1
                 B_mass -= curr_mass
-
             elif dmeasure == "arithmetic":
                 if B_mass == 0:
                     density = -1
@@ -194,9 +189,9 @@ def find_single_block(data_table, col_names, X_name, N, cur, dmeasure, policy,
                 B_mass -= curr_mass
                 avg_card -= 1.0/N
 
+            ## update maximal density
             if density > max_dens:
                 max_dens, max_order = density, curr_order
-
             ## move to the next row
             curr_row = get_next_Brow(B_rm, cur)
 
@@ -207,16 +202,14 @@ def find_single_block(data_table, col_names, X_name, N, cur, dmeasure, policy,
 
         ## because we have changed Btable, we need to re-compute the mass
         recompute_Bmass(col_names, X_name, N, cur, Bn_index, n_rm)
-
-      
+   
     ## reconstruct the dense block
-    print "\nReconstructing dense block...",
     for n in range(N):
         cur.execute(("CREATE TABLE final_B%d AS SELECT R.value FROM R%d as R, rmOrder " % (n,n)) 
              + ("WHERE R.value=rmOrder.value and rmOrder.dimension=%d and rmOrder.r >= %d;" 
                 % (n, max_order)))
 
-    ## clean up: drop the created temporary tables
+    ## clean up: drop the temporary tables
     cur.execute("DROP TABLE Btable;")
     cur.execute("DROP TABLE rmOrder;")
     for n in range(N):
@@ -241,8 +234,8 @@ def init_B_tables(data_table, col_names, X_name, N, cur,
 
     ## create index on the i-th attribute
     if b_index >= 0 and b_index < N:
-        cur.execute("CREATE INDEX ON Btable (%s)" % (col_names[b_index]))
-        print ("created index on Btable (%s)" % col_names[b_index])
+        cur.execute("CREATE INDEX ON Btable (%s);" % (col_names[b_index]))
+        print ("\tcreated index on Btable (%s)" % col_names[b_index])
 
     ## total mass in Btable; initially equals to current total mass
     update_parameter(cur, 'B_mass', get_parameter(cur, 'total_mass'))
@@ -251,12 +244,7 @@ def init_B_tables(data_table, col_names, X_name, N, cur,
     cur.execute("CREATE TABLE rmOrder (value varchar(80), dimension int, r int);")
 
     ## create tables Bn(value, mass) to store all values in Rn and the mass
-    ## note that if a value is missing in Btable, we treat its mass as zero
     for n in range(N):
-        # cur.execute(("CREATE TABLE B%d AS SELECT value, sum(measure) as mass FROM " % n) 
-        #      + ("(SELECT R%d.value as value, COALESCE(Btable.%s, 0) as measure " % (n, X_name))
-        #      + ("FROM Btable RIGHT JOIN R%d ON Btable.%s=R%d.value) AS t " % (n, col_names[n], n))
-        #      + ("GROUP BY value ORDER BY mass;"))
         cur.execute( ("CREATE TABLE B%d AS SELECT %s as value, sum(%s) as mass " % 
             (n, col_names[n], X_name))
              + ("FROM Btable ")
@@ -270,38 +258,36 @@ def init_B_tables(data_table, col_names, X_name, N, cur,
 
 def recompute_Bmass(col_names, X_name, N, cur, Bn_index, n_rm):
     """
-    After updating Btable, we need to re-compute the mass for each Bn=a.
+    After deleting some entries from Btable, 
+    we need to re-compute the mass for each Bn=a.
     Args:
         col_names: list of column names, with length N
         X_name: column name of the measure attribute
         N: number of dimensions
         cur: cursor for database connection
+        Bn_index: whether to create index on Bn
+        n_rm: the current dimension that the algorithm is removing; 
+              this Bn does not need to be updated. 
     """
     for n in range(N):
         if n != n_rm:
-            ## it's faster to re-create a new table than updating the old one
-            ## the cardinality is the same as the old Bn
-            ## if a value is missing in Btable, we treat its mass as zero
-            # cur.execute("CREATE TABLE new_B AS SELECT value, sum(measure) as mass FROM " 
-            #      + ("(SELECT B%d.value as value, COALESCE(Btable.%s, 0) as measure " % (n, X_name))
-            #      + ("FROM Btable RIGHT JOIN B%d ON Btable.%s=B%d.value) AS t " % (n, col_names[n], n))
-            #      + ("GROUP BY value ORDER BY mass;"))
+            ## it's faster to re-create a new table Bn than updating the old one
             cur.execute( ("CREATE TABLE new_B AS SELECT value, sum(%s) as mass " % (X_name))
                  + ("FROM Btable JOIN B%d ON Btable.%s=B%d.value " % (n, col_names[n], n))
                  + ("GROUP BY value ORDER BY mass;"))
             cur.execute("DROP TABLE B%d;" % n)
             cur.execute("CREATE TABLE B%d AS SELECT * FROM new_B;" % n)
             cur.execute("DROP TABLE new_B;")
-            ## record its cardinality
+            ## update its cardinality
             update_parameter(cur, 'card_B%d' % n, compute_card(cur, "B%d" % n))
             ## create index
-            # if Bn_index:
-            #     cur.execute("CREATE INDEX ON B%d (value);" % n)
+            if Bn_index:
+                cur.execute("CREATE INDEX ON B%d (value);" % n)
 
 
 def get_next_Brow(Bn, cur):
     """
-    Get the next row in table Bn with the smallest mass.
+    Get the top row in table Bn, which has the smallest mass.
     Args:
         Bn: table name, one of B0 ... B(N-1)
         cur: cursor for database connection
@@ -310,7 +296,7 @@ def get_next_Brow(Bn, cur):
     return cur.fetchone()
 
 
-def init_dcube_tables(data_table, col_names, X_name, K, N, cur, para_index=True):
+def init_dcube_tables(data_table, col_names, X_name, K, N, cur, para_index):
     """
     Initialize the tables for D-cube.
     Args:
@@ -320,7 +306,7 @@ def init_dcube_tables(data_table, col_names, X_name, K, N, cur, para_index=True)
         K: number of blocks
         N: number of dimension
         cur: cursor of database connection
-        para_index: whether to create index for parameters
+        para_index: whether to create index for the 'parameters' relation
     """
     ## create tables Rn to store the unique values in each dimension
     for n in range(N):
@@ -339,8 +325,8 @@ def init_dcube_tables(data_table, col_names, X_name, K, N, cur, para_index=True)
 
     ## create index
     if para_index:
-        print "created hash index on parameters."
         cur.execute("CREATE INDEX ON parameters USING hash (par);")
+        print "\tcreated hash index on parameters."
 
     ## store the cardinality of R_1 ... R_N; these remain unchanged.
     for n in range(N):
