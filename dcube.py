@@ -144,6 +144,7 @@ def info_realdata(data="darpa"):
         dmeasure = "arithmetic"
     else:
         print "Invalid -data option."
+        sys.exit(1)
 
     return (data_table, N, col_names, b_index, dmeasure)
         
@@ -205,7 +206,7 @@ def dcube_realdata(dbname, user, port, file_name, K, data="darpa",
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="D-Cube Using PostgreSQL.")
     parser.add_argument("-db", "--dbname", type=str, default="test")
     parser.add_argument("-user", "--user", type=str, default="postgres")
     parser.add_argument("-port", "--port", type=str, default="5432")
