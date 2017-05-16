@@ -1,8 +1,15 @@
-PostgreSQL implementation of D-CUBE.
+A PostgreSQL implementation of D-CUBE (Disk-based Dense-block Detection).
 
 Authors:
 Lingxue Zhu (lzhu1@andrew.cmu.edu)
 Jining Qin (jiningq@andrew.cmu.edu)
+============
+
+D-CUBE algorithm is described in the following paper: 
+http://www.cs.cmu.edu/~kijungs/codes/dcube/paper.pdf
+
+The original Java implementation of D-CUBE is available at 
+http://www.cs.cmu.edu/~kijungs/codes/dcube/
 ============
 
 USAGE
