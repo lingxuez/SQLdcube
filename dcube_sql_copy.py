@@ -65,7 +65,7 @@ def dcube_copy(original_data_table, col_names, X_name, K, N, cur,
         total_mass = get_parameter(cur, 'total_mass')
         # print ("\tAfter removing the block, %d entries are left." % R_card)
         if R_card == 0 or total_mass == 0:
-            print ("Algorithm stopped after finding %d blocks because no entries are left." %
+            print ("Algorithm stopped after finding %d blocks because no mass is left." %
                 (k+1))
             break
 
@@ -171,13 +171,13 @@ def update_density(density, N, cur, dmeasure,
         density, _ = compute_density(cur, N, dmeasure)
     ## for the other two density measures, we have simplier updating method
     elif dmeasure == "geometric":
-        if B_mass == 0:
+        if B_mass == 0 or card <= 1:
             density = -1
         else:
             density *= (B_mass - curr_mass) / B_mass
             density *= math.pow(card, 1.0/N)/math.pow(card-1, 1.0/N)     
     elif dmeasure == "arithmetic":
-        if B_mass == 0:
+        if B_mass == 0 or avg_card <= 1.0/N:
             density = -1
         else:
             density *= (B_mass - curr_mass) / B_mass
@@ -354,7 +354,7 @@ def init_dcube_tables(original_data_table, data_table, col_names, X_name,
         # print ("\tcreated index in Rtable on %s" % col_names[r_index])
 
     ## create a table for global parameters
-    cur.execute("CREATE TABLE parameters (par varchar(80), value double precision);")
+    cur.execute("CREATE TABLE parameters (par varchar(40), value double precision);")
     cur.execute("INSERT INTO parameters (par) VALUES ('total_mass');")
     cur.execute("INSERT INTO parameters (par) VALUES ('B_mass');")
     for n in range(N):    
@@ -375,12 +375,12 @@ def init_dcube_tables(original_data_table, data_table, col_names, X_name,
         update_parameter(cur, 'card_R%d' % n, compute_card(cur, "R"+str(n)))
 
     ## create temporary tables
-    cur.execute("CREATE TABLE new_B (value varchar(80), mass double precision);")
+    cur.execute("CREATE TABLE new_B (value varchar, mass double precision);")
     ## a table to keep track of the removal order of each entry
-    cur.execute("CREATE TABLE rmOrder (value varchar(80), dimension int, r int);")
+    cur.execute("CREATE TABLE rmOrder (value varchar, dimension int, r int);")
     ## the Bn(value, mass) used for find_single_block and final_Bn for found blocks
     for n in range(N):
-        cur.execute("CREATE TABLE B%d (value varchar(80), mass double precision);" % n)
-        cur.execute("CREATE TABLE final_B%d (value varchar(80));" % n)
+        cur.execute("CREATE TABLE B%d (value varchar, mass double precision);" % n)
+        cur.execute("CREATE TABLE final_B%d (value varchar);" % n)
 
 

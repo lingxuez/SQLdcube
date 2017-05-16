@@ -39,7 +39,7 @@ def dcube_mark(data_table, col_names, X_name, K, N, cur,
     ## create index on the i-th attribute
     if r_index >= 0 and r_index < N:
         cur.execute("CREATE INDEX ON %s USING hash (%s);" % (data_table, col_names[r_index]))
-        print ("\tcreated index in Rtable on %s" % col_names[r_index])
+        # print ("\tcreated index in Rtable on %s" % col_names[r_index])
 
     ## initialize needed tables
     init_dcube_tables_mark(data_table, col_names, X_name, K, N, cur, para_index)
@@ -96,14 +96,13 @@ def dcube_mark(data_table, col_names, X_name, K, N, cur,
 
         ## if nothing left, then stop
         R_card = compute_card_mark(cur, data_table)
-        print ("\tAfter removing the block, %d entries are left." % R_card)
+        # print ("\tAfter removing the block, %d entries are left." % R_card)
         if R_card == 0:
             print ("Algorithm stopped after finding %d blocks because no entries are left." %
                 (k+1))
             break
 
     ## clean up: drop the temporary tables
-    cur.execute("DROP TABLE %s;" % data_table)
     cur.execute("DROP TABLE parameters;")
     for n in range(N):
         cur.execute("DROP TABLE R%d;" % n)
@@ -203,7 +202,7 @@ def init_B_tables_mark(data_table, col_names, X_name, N, cur,
     ## create index on the i-th attribute
     if b_index >= 0 and b_index < N:
         cur.execute("CREATE INDEX ON Btable (%s);" % (col_names[b_index]))
-        print ("\tcreated index on Btable (%s)" % col_names[b_index])
+        # print ("\tcreated index on Btable (%s)" % col_names[b_index])
 
     ## total mass in Btable; initially equals to current total mass
     update_parameter(cur, 'B_mass', get_parameter(cur, 'total_mass'))
@@ -278,8 +277,8 @@ def init_dcube_tables_mark(data_table, col_names, X_name, K, N, cur, para_index)
 
     ## create index
     if para_index:
-        cur.execute("CREATE INDEX ON parameters USING hash (par);")
-        print "\tcreated hash index on parameters."
+        cur.execute("CREATE INDEX ON parameters (par);")
+        # print "\tcreated hash index on parameters."
 
     ## store the cardinality of R_1 ... R_N; these remain unchanged.
     for n in range(N):

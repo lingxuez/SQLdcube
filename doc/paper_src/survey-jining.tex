@@ -1,0 +1,79 @@
+%!TEX root = proposal.tex
+
+Next we list the papers that each member read, along with their summary and critique.
+
+\subsection{Papers read by Jining Qin}
+%%%%%%%%%%
+%% 1
+%%%%%%%%%%
+
+\subsubsection{General suspiciousness metric and CorssSpot algorithm \cite{jiang2015general} }
+
+\paragraph{Problem} The main problem that this paper addresses is to propose a formal set of axioms that regulates the suspiciousness metric of a dense block in multimodal data. A metric is then proposed that satisfies the set of axioms and is fast to compute. Then an algorithm CROSSSPOT is proposed to find dense regions and sort them in suspiciousness order, which works well in their experiments on retweet boosting detection.
+
+\paragraph{Main idea} 
+There are many works that aim at identifying dense subtensor in multimodal data, yet there is not yet a disciplined method for rating and ranking each suspected dense block. Formally, each dataset is seen as a $K$-mode tensor $X$ with size $\mathbf{N}$ and mass $C$ (the sum of events in the tensor), and the suspected subtensor is denoted $Y$, with size $\mathbf{n}$ and mass $c$.
+
+The axioms on the suspiciousness metric $f(\mathbf{n}, c, \mathbf{N}, C)$ (which can be reparameterized as $\hat{f}(\mathbf{n}, \rho, \mathbf{N}, p)$, where $\rho$ and $p$ denote the density of the corresponding tensor/subtensor) is as follows:
+
+\begin{enumerate}
+\item {\it Density} Other things being equal (size), the subtensor with greater mass is more suspicious.
+
+\item {\it Size} Other things being equal (density), the larger subtensor is more suspicious.
+
+\item {\it Concentration} Other things being equal (mass), the smaller block is more suspicious.
+
+\item {\it Contrast} Other things being equal(size), the block in the sparser background tensor is more suspicious.
+
+\item {\it Mltimodal} A block which contains all possible values within a mode is just as suspicious as if the mode was collapsed into the remaining modes.
+
+\end{enumerate}
+
+Following these axioms, the authors proposed a suspiciousness metric, which is the negative log likelihood of block's mass under an Erdos-Renyi-Poisson model. Given an $n_1 \times n_2 \times \cdots, \times n_k$ block of mass $c$ in $N_1 \times N_2 \times \cdots \times N_K$ data of total mass $C$, the suspiciousness score is 
+$$f(\mathbf{n}, c, \mathbf{N}, C) = -\log(Pr(Y_n = c))$$
+where $Y_n$ is the sum of entries in the block.
+
+A local search algorithm is then proposed to search for suspicious blocks in the dataset. Given a seed region, we loop through each mode of it. The attribute values of each mode is adjusted by including the values which induce the largest amount of intersections of other (fixed) attribute values up to the point that the suspiciousness score is maximized. Such mode adjustment is made iteratively until the region becomes stable. It can be shown that the algorithm is relatively robust to seed region selection, therefore a random seed region would be adequate. Also, the algorithm is quasilinear in the size of the tensor $N$ and linear in the number of non-zero entries.
+
+\paragraph{Connection to our project} The most important contribution of this paper is that we have a disciplined way to think of suspicious subtensors in terms of its size, mass, and contrast with its background tensor. The proposed suspicious metric and algorithm could both be applied (maybe after slight modification) in our project to identify suspicious dense blocks.
+
+\paragraph{Potential shortcomings} The assumption behind the suspiciousness metric might be a little strong. Data generating process might not always follow an Erdos-Renyi-Poisson model. Therefore there is room for generalization of the metric into more relaxed settings. Also, the proposed algorithm (may) require data to be stored in the main memory, which isn't realistic for larger scale problems. The iterative nature of the algorithm makes it hard to scale or parallelize.
+
+
+%%%%%%%%%%
+%% 2
+%%%%%%%%%%
+\subsubsection{M-zoom \cite{shin2016m} }
+
+\paragraph{Problem}  This paper proposed an flexible algorithm which finds dense block in tensors that is efficient, with accuracy guarantee, and adjustable for different desnity measures. It scales linearly with all aspects of tensors and achieves enormous speedup based on current methods. It is provably accurate on the lowest density of blocks it finds. It supports multi-block detection, size bounds, and diverse density measures. And it works well on the experiment in detecting edit wars and bot activities in Wikipedia and spotting network attacks.
+
+\paragraph{Main idea} 
+The outline of M-zoom algorithm goes as follows. M-Zoom copies the entire relation into the main memory. And then finds $k$ dense blocks one by one from it. After finding each block, the entries in the block is removed to prevent the same block from being detected repeatedly. Note that the final output blocks are the blocks corresponding to the attribute values in the found blocks. Therefore it is possible for an entry to appear in more than one identified blocks. In other words, M-zoom is able to find overlapped blocks.
+
+The single block identification algorithm given the relation goes like this. The block is initialized to be the entire remaining relation. Then attributes are removed one by one until the block is empty. M-zoom always find the attribute value after whose removal the block's density could be maximized. A snapshot of this block is then saved for later use. When all attribute values are removed. M-zoom would scan through the snapshots and return the block with the maximum density in the list.
+
+
+\paragraph{Connection to our project} The algorithm M-zoom looks ideal for problems that fits in the main memory. It is efficient, provably accurate and flexible to different density measures. It also appears to work well on real world data. It is helpful to consider it or its variant in our project. 
+
+\paragraph{Potential shortcomings} The algorithm requires data to fit in main memeory. Therefore it might be limited in application on large scale problems. Also, the accuracy guarantee, though useful, might not be realistic.
+
+
+%%%%%%%%%%
+%% 3
+%%%%%%%%%%
+\subsubsection{D-cube \cite{shin2017d}}
+
+\paragraph{Problem} The D-cube algorithm also addresses the problem of identifying high-density blocks in multimodal tensors. In particular, it works under the situation where dataset doesn't fit on the main memory, making I/O expense no longer negligible. It is disk-based and can be run in a distributed manner across multiple machines. It achieves massive speedup, memory efficiency, and provable accruacy guarantee. It works well in the experiment of identifying network attacks in real world dataset. 
+
+\paragraph{Main idea} Given a large-scale realtion not fitting in memory, we want to find $k$ distinct blocks with the highest density in terms of the given density measure. The main outline of the algorithm is very close to that of M-zoom. The $k$ blocks are identified one by one and the entries within the range of already found blocks are removed to prevent the same block from being detected again. An entry can still appear in more than one identified blocks, since the blocks can overlap in terms of attribute values.
+
+The major difference from M-zoom is in the single block detection algorithm. The block is first initialized to the entire relation, then repeatedly removes attribute values and tuples with these values until the block becomes empty. In each iteration, the selected dimension is either by picking the dimension with the maximum cardinality or the maximum density (in the sense that the dimension upon whose removal the block achives maximum density would be chosen) policy. A record of maximum-density and block is kept such that at the end of the loop D-cube would return the block with the highest density. In each single block detection step, there are only two scanning of the block in the disk, which saves a lot of time by cutting down on the I/O accesses.
+
+The accuracy of D-cube can also be proved in the sense that under the maximum cardinality policy, the identified block is guaranteed to have a lower bound in density. The algorithm can be implemented efficiently under the MapReduce framework.
+
+
+\paragraph{Connection to our project} This algorithm is a good starting point for situations where a data set doesn't fit on the main memory. Also, it provides an implementation of parallelization, which would also be useful in our project, which will likely deal with a large scale problem.
+
+\paragraph{Potential shortcomings} The algorithm might not scale well with ultra-high dimensionality, since the dimension selection algorithm still have to linearly scan through all dimensions everytime a removal is made. Also, the algorithm assumes the anomaly tensor is in cube shape, therefore it might mis-identify high density regions if the true anomaly comes in a more quirky shape.
+
+

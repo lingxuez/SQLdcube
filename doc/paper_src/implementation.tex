@@ -1,0 +1,199 @@
+%!TEX root = final_report.tex
+
+\subsection{Algorithm}
+
+Here, we present our implementation of the D-cube algorithm. We will give the details of how we implement the D-cube algorithm using PostgreSQL. Our final code is written using the python adapter {\tt psycopg2} in Python 2.7.11. In the following sections, we will follow the notations in the original paper \cite{shin2017d}. 
+
+\subsubsection{Relations}
+It is straightforward to translate many of the symbols in the original D-cube algorithm to relations. 
+Table~\ref{tab:relation} lists the correspondence between the symbols used in the original paper and the relations we use in our implementation.
+We also introduce a new relation $\mathcal{P}(parameter, value)$ to store the parameters that we need to use in the algorithm,  including the total mass in $\mathcal{R}$ (i.e., $M_{\mathcal{R}}$), 
+ the total mass in $\mathcal{B}$ (i.e., $M_{\mathcal{B}}$), and the cardinalities $|\mathcal{B}_1|, ..., |\mathcal{B}_N|$ and $|\mathcal{R}_1|, ..., |\mathcal{R}_N|$.
+
+\bgroup
+\def\arraystretch{1.5} % vertical spacing; 1 is the default
+
+\begin{table}[htbp]
+\caption{Relations used in our implementation, and their corresponding symbols in the original paper \cite{shin2017d}, with the detailed definition. }
+\label{tab:relation}
+
+\begin{center}
+\begin{tabular}{ c | c| p{3.7in}}
+\hline
+Original Symbol & Our relation & Definition \\
+\hline
+$\mathcal{R}^{ori}$ & $\mathcal{R}_{ori}(A_1, .., A_N, X)$ & Original data, each row includes a point in N-way tensor $(A_1, ..., A_N)$, as well as a measure attribute $X$ \\  
+$\mathcal{R}$ & $\mathcal{R}(A_1, .., A_N, X)$ & A copy of $\mathcal{R}_{ori}$ that will be modified by our algorithm, while the original $\mathcal{R}_{ori}$ remains unchanged. \\
+ $\mathcal{R}_n$ & $\mathcal{R}_n(A_n)$ & A relation with one column including the unique values of $A_n$ in $\mathcal{R}$ \\
+$\mathcal{B}$ & $\mathcal{B}(A_1, .., A_N, X)$ & A subset of $\mathcal{R}$ to help find the blocks \\  
+$\mathcal{B}_n$ & $\mathcal{B}_n(A_n, M)$ & The column $A_n$ includes the unique values of $A_n$ in $\mathcal{B}$, and the column $M$ represents the mass of each unique value in $\mathcal{B}$, $\mathcal{M}_{\mathcal{B}(a, n)}$. \\
+$\tilde{\mathcal{B}}_n$ &  $\mathcal{B}_{final, n}(A_n)$ & The column $A_n$ includes the unique values of $A_n$ that are in the final selected block in Algorithm 2 ({\tt find\_single\_block})  \\
+$\mathcal{B}^{ori}$ &   $\mathcal{B}lock (A_1, .., A_N)$ & The entries in the selected $N$-way dense block; is a subset of $\mathcal{R}_{ori}$. \\
+$order(a, i)$ & $\mathcal{O}(A, Dim, Order)$ & A relation that keeps track of the order $Order \in \{1, 2, ...\}$ for a value $a \in A$ in dimension $Dim \in \{1, \cdots, N\}$ that is removed in Algorithm 2 ({\tt find\_single\_block}) \\ 
+-- & $\mathcal{P}(parameter, value)$ & A relation storing global parameters, including the total mass in $\mathcal{R}$ (i.e., $M_{\mathcal{R}}$), 
+ the total mass in $\mathcal{B}$ (i.e., $M_{\mathcal{B}}$), and the cardinalities $|\mathcal{B}_1|, ..., |\mathcal{B}_N|$ and $|\mathcal{R}_1|, ..., |\mathcal{R}_N|$.  \\
+\hline
+\end{tabular}
+\end{center}
+
+\end{table}%
+
+
+\subsubsection{Key calculations}
+Now we explain our PostgreSQL implementation for  a few key steps in the algorithm.
+
+\begin{enumerate}
+
+\item Compute $\mathcal{R}_n$, the unique values of $A_n$ in $\mathcal{R}$:
+This is can be easily achieved by\\
+%\begin{verbatim}
+{\tt
+CREATE TABLE Rn AS SELECT DISTINCT An AS value FROM R;
+}%\end{verbatim}
+
+\item Compute the  total mass in $\mathcal{R}$ (i.e., $M_{\mathcal{R}}$): This can be achieved by\\
+%\begin{verbatim}
+{\tt
+SELECT sum(X) FROM R;
+}
+%\end{verbatim}
+
+\item Compute $\{\mathcal{M}_{\mathcal{B}(a, n)}\}$: Note that in our implementation, we store this information in the second column of the relation $\mathcal{B}_n(A_n, M)$. Initially, this relation contains all values in $\mathcal{R}_n$, and if a value is missing in $\mathcal{B}$, we assign its measure attribute to be zero. This is achieved by the following code:
+\begin{verbatim}
+CREATE TABLE Bn AS SELECT An, sum(X) as mass 
+    FROM  (SELECT Rn.An as An, COALESCE(B.An, 0) as X
+            FROM B RIGHT JOIN Rn ON B.An=Rn.An) AS t 
+    GROUP BY An;
+\end{verbatim}
+
+\item Compute density: the density computation only involves the quantities $\mathcal{M}_{\mathcal{B}}$, $\mathcal{M}_{\mathcal{R}}$, $|\mathcal{B}_1|, ..., |\mathcal{B}_N|$ and $|\mathcal{R}_1|, ..., |\mathcal{R}_N|$. All these quantities are stored in the relation $\mathcal{P}(parameter, value)$, so the density computation is straightforward. 
+
+\item Select dimension by cardinality: this computation only involves the quantities $|\mathcal{B}_1|, ..., |\mathcal{B}_N|$. Again, all these quantities are stored in the relation $\mathcal{P}(parameter, value)$, so the computation is straightforward. 
+
+\item Select dimension by density: for each dimension $n$, we do the following:
+\begin{enumerate}
+\item if $|\mathcal{B}_n| = 0$, we move to $n+1$. This information can be directly extracted from $\mathcal{P}(parameter, value)$
+\item compute the average mass {\tt avg\_mass} $ = \mathcal{M}_{\mathcal{B}} / {|\mathcal{B}_n|}$. Again, this information can be directly extracted from $\mathcal{P}(parameter, value)$.
+\item we compute the number of entries $c_n$ and total mass $m_n$ for the entries with mass smaller than {\tt avg\_mass} using relation $\mathcal{B}_n(A_n, M)$:\\
+%\begin{verbatim}
+{\tt 
+SELECT count(*), sum(mass) FROM Bn WHERE mass <= avg\_mass;
+}
+%\end{verbatim}
+\item update $|\mathcal{B}_n|$ in $\mathcal{P}$ to be $|\mathcal{B}_n|-c_n$, and $\mathcal{M}_{\mathcal{B}}$ in $\mathcal{P}$ to be $\mathcal{M}_{\mathcal{B}} - m_n$. 
+Then compute the density after this deletion, and update the maximal density and best dimension if the density is larger than the current optimal one. 
+\item in the end, we need to change $|\mathcal{B}_n|$ in $\mathcal{P}$ back to  $|\mathcal{B}_n|+c_n$, and $\mathcal{M}_{\mathcal{B}}$ in $\mathcal{P}$ back to $\mathcal{M}_{\mathcal{B}} + m_n$, so that $\mathcal{P}$ is the same as before entering this loop. 
+\end{enumerate}
+Finally return the $n^*$ with the largest density.
+
+\item Algorithm 2 in  \cite{shin2017d}: in addition to the previous calculations, the most challenging part is line 10-15 where we need to repeatedly remove entries $a_i \in D_i$. We implement this {\tt for} loop in the following way: 
+
+Suppose we are now removing entries along dimension $n$ (see point 5 and 6 for dimension selection). First, we sort $\mathcal{B}_n(A_n, M)$ according to the increasing order of the second column, which is $\mathcal{M}_{\mathcal{B}(a, n)}$. Then we only need to repeatedly extract and remove the first row of  $\mathcal{B}_n(A_n, M)$, call it $(a_i, m_i)$, and the loop stops until we reach a mass $m_i > \mathcal{M}_{\mathcal{B}} / {|\mathcal{B}_n|}$.  Note that computing $\mathcal{M}_{\mathcal{B}} / {|\mathcal{B}_n|}$ is easy because both values are stored in the parameter relation $\mathcal{P}(parameter, value)$. In our implementation, we update the relation $\mathcal{B}(A_1, .., A_N, X)$ on the fly after every removal. Specifically, for each $(a_i, m_i)$, do:
+
+\begin{enumerate}
+\item if $m_i > \mathcal{M}_{\mathcal{B}} / {|\mathcal{B}_n|}$, stop and break the loop; other wise, do the following.
+\item add the entry $(a_i, n, r)$ to the relation $\mathcal{O}(A, Dim, Order)$ to record the removal order, where $r$ is the current order; then update $r \leftarrow r+1$. 
+\item mark this value in $\mathcal{B}(A_1, .., A_N, X)$ by setting $X=0$ where $A_n=a_i$.
+\item delete this entry from $\mathcal{B}_n(A_n, M)$. 
+\item update the parameters in the relation $\mathcal{P}$; specifically, set $|\mathcal{B}_n|$ to be $|\mathcal{B}_n|-1$, and $\mathcal{M}_{\mathcal{B}}$ to be $\mathcal{M}_{\mathcal{B}} - m_i$. 
+\item compute the density after deletion (see point 4 for density calculation); update the maximal density and best order if the density is larger than the current optimal. 
+\end{enumerate}
+ 
+Note that after removing $D_i$, we need to re-compute the mass in $\mathcal{B}_{n'}(A_{n'}, M)$ including the other dimensions $n' \neq n$, because we have updated table $\mathcal{B}$ in step 6(c).
+
+
+\end{enumerate}
+
+
+\subsection{Optimization}
+
+ \subsubsection{Optimization methods}
+\paragraph{Implementation.} We compared two possible implementations: 
+\begin{enumerate}[(a)]
+\item {\bf Copy:} copy the input relation ($\mathcal{R}(A_1, ..., A_N, X)$) for initializing each block ($\mathcal{B}(A_1, ..., A_N, X)$) and actually removing tuples from the copied relation. This is exactly the algorithm we described in Section 3.1.
+
+\item {\bf Mark:} add a column $D$ to mark removed tuples, so that
+\[
+D = \begin{cases}
+1 & \textrm{if tuple exists in the relation}\\
+0 &\textrm{if tuple has been removed from the relation}
+\end{cases}
+\] 
+
+Specifically, we add an extra binary column $D$ for $\mathcal{R}$. After finding each block, instead of removing the corresponding entries from $\mathcal{R}$, we simply set $D=0$ for these tuples.  Note that now we no longer need $\mathcal{R}_{ori}$, because all entries are kept in $\mathcal{R}$. When initializing $\mathcal{B}$, we only include the tuples with $D=1$ in $R$.
+
+Similarly, we include an extra column $D$ in $\mathcal{B}_n$. Then in step 7d, instead of deleting the entry from $\mathcal{B}_n$, we simply set $D=0$ for these ``removed" entries. Accordingly, whenever we want to use entries from $\mathcal{B}_n$, we only focus on the ones with $D=1$.
+ \end{enumerate}
+ 
+ \paragraph{Our own optimization: indexing.} In order to further speed up the numerous range queries in the algorithm, we tried the following indexing options:
+\begin{enumerate}[(i)]
+
+\item Create a hash index on the parameter name in $\mathcal{P}(parameter, value)$, so that when we want to update an parameter we avoid scanning the full table.
+
+\item Create an index on one of $A_1, ..., A_N$ in $\mathcal{R}(A_1, ..., A_N, X)$. This will speed up the creation of $R_n$, as well as the step when we remove the found entries from $R$ according to $A_n \in \mathcal{B}_n$. 
+%Intuitively we should create an index for the attribute with the largest distinct values. 
+
+\item Similarly we can create an index on one of $A_1, ..., A_N$ in $\mathcal{B}(A_1, ..., A_N, X)$. This will speed up step 7c when we search for entries with $A_n=a_i$. 
+%Intuitively we should create an index for the attribute with the largest distinct values. 
+
+\item We can create an index for $A_n$ in each $\mathcal{B}_n(A_n, M)$. This will speed up step 7d when we want to delete entries with $A_n=a_i$.
+%In addition, we can also create a B-tree index for $M$ in each $\mathcal{B}_n(A_n, M)$ to speed up step 6c when selecting entries with {\tt mass <= avg\_mass}. 
+
+\end{enumerate}
+
+ \subsubsection{Experimental results}
+To evaluate and compare different optimization methods, we run the D-Cube algorithm on the first 10,000 entries of the DARPA dataset with $K=1$.  In the first 10,000 entries of DARPA data, there are 426 unique values in {\tt source}, 1,093 in {\tt destination}, and 4,590 in {\tt timestamp}.
+Table~\ref{tab:optimization} reports the wall-clock running time of the two implementation methods and various indexing methods. For indexing method (ii) and (iii), we report the results of creating index on each of the 3 attributes: {\tt source}, {\tt destination}, and {\tt timestamp}. 
+
+We see that the {\bf copy} method is more efficient than the {\bf mark} method. Among the indexing methods, method (ii) that creates index for $\mathcal{R}$ is not very helpful. Except for that, all other indexing methods help improving the efficiency.  In particular, the best performance is obtained by creating indexing for {\tt timestamp}, which has the largest number of unique values in the data.
+
+Therefore, in the following real data experiments, we always use the {\bf copy} implementation, and create index for {\tt parameter} in $\mathcal{P}(\textrm{\underline{\bf parameter}}, value)$, $A_n$ in $\mathcal{B}_n(A_n, M)$, and we select one attribute $A_n$ to create index in  $\mathcal{R}(A_1, ..., A_N, X)$ and  $\mathcal{B}(A_1, ..., A_N, X)$.
+
+\bgroup
+\def\arraystretch{1} % vertical spacing; 1 is the default
+
+\begin{table}[htbp]
+\caption{Wall-clock time (in seconds) of different optimization methods.}
+\label{tab:optimization}
+
+\begin{center}
+\begin{tabular}{l | r | r }
+\hline
+ & \multicolumn{2}{c}{Implementation method} \\
+Indexing method & (a) Copy & (b) Mark \\
+\hline
+no indexing & 25.96  & 26.17 \\
+\hline
+(i) & 20.58 &22.45 \\
+\hline
+(i) + (ii) for {\tt source} & 19.54 & 21.67   \\
+ (i) + (ii) for {\tt destination} & 20.51 & 23.74 \\
+ (i) + (ii) for {\tt timestamp} & 20.77 & 23.14  \\
+
+\hline
+(i) + (iii) for {\tt source} & 20.42 & 22.02  \\
+ (i) + (iii) for {\tt destination} & 19.85 & 22.50 \\
+ (i) + (iii) for {\tt timestamp} & 16.73 & 19.16  \\
+
+%\hline
+% (i) + (ii) + (iii) for {\tt source} & 22.17 \\
+% (i) + (ii) + (iii) for {\tt destination} & 21.07  \\
+% (i) + (ii) + (iii) for {\tt timestamp} & 19.81  \\
+
+%\hline
+%(i) + (iii) for {\tt source} + (iv) & 22.91 \\
+%(i) + (iii) for {\tt destination} + (iv) & 19.38 \\
+%(i) + (iii) for {\tt timestamp} + (iv) & 16.66 \\
+
+\hline
+(i) + (iii) for {\tt source} + (iv) & 19.23 & 22.78 \\
+(i) + (iii) for {\tt destination} + (iv) & 18.93 & 21.15  \\
+(i) + (iii) for {\tt timestamp} + (iv) & \underline{\bf 13.49}  & 18.26 \\
+
+\hline 
+\end{tabular}
+
+\end{center}
+\end{table}%
+
+

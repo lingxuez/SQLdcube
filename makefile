@@ -9,15 +9,9 @@
 ## 
 ## Variables:
 ##
-## DBNAME: database name; default is system $USER (andrew ID)
-## USERNAME: database user; default is system $USER (andrew ID)
-## PORT: database port; default is 5432
-## K: number of dense blocks to detect
-## N: number of dimensions of attributes
-## INFILE: input .csv file with N+1 columns where the last column is the mass
-## OUTIDR: output directory; the results will be saved under this directory
-## DMEASURE: density measure method, 'arithmetic' or 'geometric' or 'suspicious'
-## POLICY: dimension selection policy, 'density' or 'cardinality'
+## DBNAME: database name; default is system $USER
+## USERNAME: database user; default is system $USER
+## PORT: database port number; default is 5432
 ##
 ##############################################
 ##
@@ -27,55 +21,33 @@
 ## You only need to do this once:
 ## 	$ make setup
 ##
-## To run a demo on 10,000 entries of Airforce data:
+## To start the PostgreSQL server, run the small, and then stop the server:
 ## 	$ make
 ##
-## To run D-cube on your own input data, do the following: 
-## 	1. change INFILE to be path to your data 
-## 	2. set DATA=custom
-## 	3. specify your desired output directory with OUTDIR
-## 	4. specify the algorithm parameters K, N, DMEASURE, POLICY
-## 	5. start the PostgreSQL server if you haven't:
-##		$ make start
-## 	6. run the algorithm:
-## 		$ make run
-## 	7. stop the PostgreSQL server after you're done:
-## 		$ make stop
+## To run the small demo, assuming the server has been started:
+##  $ make demo
+## 
+## To start the PostgreSQL server:
+##	$ make start
+##
+## To stop the PostgreSQL server after you're done:
+## 	$ make stop
 ##  
-## To eliminate all the derived files *.pyc:
+## To eliminate all the derived files:
 ## 	$ make clean
 ##
 ## To create a .tar file for distribution:
 ## 	$ make all.tar
 ##
+## To re-complie LaTeX to re-produce doc/final_report.pdf:
+##  $ make paper.pdf
+##
 ##############################################
-.PHONY: all start stop demo
+.PHONY: all setup start stop demo clean all.tar
 
-## one of the 5 built-in data: 
-## 'darpa' or 'wiki' or 'amazon' or 'yelp' or 'airforce'
-## or 'custom' for other customized datasets
-DATA=airforce
-
-## PostgreSQL setting
 DBNAME=$(USER)
 USERNAME=$(USER)
 PORT=5432
-
-## number of blocks to detect
-K=20
-## number of dimension
-N=3
-## input file
-INFILE=demo/mid_airforce.csv
-## output directory
-OUTDIR=demo/demo_out
-## density measure: 'arithmetic' or 'geometric'
-DMEASURE=arithmetic
-## dimension selection policy: 'density' of 'cardinality'
-POLICY=density
-
-
-##############################################
 
 all: start demo stop
 
@@ -86,32 +58,43 @@ setup:
 	pg_ctl -D $(HOME)/826prj stop
 
 start:
+	@echo ""
+	@echo "************** Starting PostgreSQL server **************"
 	PGPORT=$(PORT) PGHOST=/tmp pg_ctl -D $(HOME)/826prj -o '-k /tmp' start
-	
+	@echo "************** PostgreSQL server started **************"
 
 stop:
+	@echo ""
+	@echo "************** Stoping PostgreSQL server **************"
 	pg_ctl -D $(HOME)/826prj stop
-
+	@echo "************** PostgreSQL server stopped **************"
 
 demo:
+	@echo ""
+	@echo "************** Starting Demo **************"
 	@python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
-			-in demo/mid_airforce.csv -K 2 -data airforce \
+			-in demo/demo_data.csv -K 1 -N 3 -opt mark \
 			-outdir demo/demo_out -dmeasure arithmetic -policy density
-
-realdata: 
-	@time python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
-			-in $(INFILE) -K $(K) -N $(N) -data $(DATA) -outdir $(OUTDIR)
-
-run: 
-	@time python dcube.py -db $(DBNAME) -user $(USERNAME) -port $(PORT) \
-			-in $(INFILE) -outdir $(OUTDIR) -K $(K) -N $(N) \
-			-dmeasure $(DMEASURE) -policy $(POLICY)
+	@echo "************** Demo Finished **************"
 
 clean:
-	@rm *.pyc
+	@rm -f *.pyc
+	@rm -f doc/paper_src/*.aux doc/paper_src/*.log \
+			doc/paper_src/*.bbl doc/paper_src/*.blg
 
-all.tar:
-	@tar -zcvf dcube.tar makefile *.py doc/*.pdf demo/*.csv
 
+all.tar: clean
+	@tar -zcvf dcube.tar makefile *.py *.txt demo/*.csv \
+		doc/*.pdf doc/paper_src/*.tex doc/paper_src/*.bib doc/paper_src/plots
 
+paper.pdf:
+	@echo ""
+	@echo "************** Re-compiling pdfTeX **************"
+	@cd doc/paper_src; \
+	pdflatex --interaction=batchmode final_report.tex; \
+	bibtex final_report.aux; \
+	pdflatex --interaction=batchmode final_report.tex; \
+	pdflatex --interaction=batchmode final_report.tex
+	@mv doc/paper_src/final_report.pdf doc/
+	@echo "************** Finished doc/final_report.pdf **************"
 

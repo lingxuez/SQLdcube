@@ -1,0 +1,3 @@
+%!TEX root = final_report.tex
+
+In this project, we provide an implementation of the D-Cube algorithm for dense block detection using PostgreSQL. Our implementation stores all information on disk using SQL relations, and is able to handle large real-world dataset even when the data and metadata cannot fit in memory.  We compare different optimization methods, and find that for the D-Cube algorithm, iteratively deleting the required entries from relations is more efficient than adding an extra column to mark the deletion. We also find that creating index for relations that are repeatedly queried can significantly reduce the computation time. 

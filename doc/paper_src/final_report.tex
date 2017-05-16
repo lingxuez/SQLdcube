@@ -1,0 +1,97 @@
+\documentclass[12pt]{article}
+
+\usepackage{fullpage}
+\usepackage{graphicx}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{graphics}
+\usepackage{multirow}
+\usepackage{mdwlist, enumerate}
+
+
+% christos: these look closer to NSF specs\dots
+\setlength{\oddsidemargin}{0.0in}
+\setlength{\evensidemargin}{0.0in}
+\setlength{\textwidth}{6.5in}
+\setlength{\headheight}{0.0in}
+\setlength{\topmargin}{0.0in}
+% \setlength{\textheight}{9.0in}
+\setlength{\textheight}{9in}
+\addtolength{\textheight}{-\topmargin}
+\addtolength{\textheight}{-\headheight}
+\addtolength{\textheight}{-\headsep}
+\addtolength{\textheight}{-\footskip}
+
+
+
+\begin{document}
+
+\newcommand{\beq}{\begin{equation}}
+\newcommand{\eeq}{\end{equation}}
+\newcommand{\bit}{\begin{itemize*}}
+\newcommand{\eit}{\end{itemize*}}
+\newcommand{\goal}[1]{ {\noindent {$\Rightarrow$} \em {#1} } }
+\newcommand{\hide}[1]{}
+\newcommand{\comment}[1]{ {\footnotesize {#1} } }
+\newtheorem{lemma}{Lemma}
+\newtheorem{theorem}{Theorem}
+\newtheorem{proof}{Proof}
+\newtheorem{defn}{Definition}
+\newtheorem{algo}{Algorithm}
+\newtheorem{observation}{Observation}
+
+\title{Dense Subtensor Mining using SQL}
+
+
+\author{ {\em Jining Qin} \\
+	    Dept. of Statistics \\
+	    Carnegie Mellon University\\
+	    {\tt jiningq@andrew.cmu.edu}
+	 \and
+	 {\em Lingxue Zhu} \\
+	     Dept. of Statistics \\
+	    Carnegie Mellon University\\
+	     {\tt lzhu1@andrew.cmu.edu}
+        }
+
+
+\maketitle
+
+\section{Introduction}
+   \label{sec:introduction} 
+   \input{introduction}
+
+\section{Survey}
+    \label{sec:survey}
+    \input{survey-jining}
+    \input{survey-lingxue}
+    
+\section{Implementation}
+    \label{sec:implementation}
+    \input{implementation}
+
+\section{Experiments}
+    \label{sec:experiments}
+    \input{experiments}
+    
+% \input{upcoming-expr}
+
+\section{Concolusion}
+    \label{sec:concolusion}
+    \input{conclusion}
+
+\section{Graded Phase 1 \& 2 }
+
+Please see below for a screenshot in Blackboard. We got 100/100 in both phase 1 and phase 2.
+
+\begin{figure}[h]
+\centering 
+\includegraphics[width=.75\columnwidth]{plots/phase1.png} 
+\includegraphics[width=.75\columnwidth]{plots/phase2.png} 
+\end{figure}
+
+\bibliography{database}
+\bibliographystyle{plain}
+
+
+\end{document}

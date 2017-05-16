@@ -1,0 +1,79 @@
+%!TEX root = proposal.tex
+
+\subsection{Papers read by Lingxue Zhu}
+
+%%%%%%%
+%% 1
+%%%%%%%%
+\subsubsection{Vertexica \cite{jindal2015graph} }
+
+\paragraph{Problem} The main problem that this paper addresses is how to use Vertica, a column-oriented relational database, to conduct vertex-centric graph analysis. The authors illustrate that many graph mining tasks can be written as SQL queries, and Vertica is more efficient than two popular vertex-centric systems (Giraph and Graphlab) because it is highly optimized for storing, scanning, joining and aggregating large tables. 
+
+
+\paragraph{Main idea} 
+Many graph analytics are typically conducted under the ``vertex-centric" model, where the user provides a UDF (user-defined-function) for each vertex, and the system takes care of the message passing/communication and synchronization. Popular vertex-centric systems include Pregrel, Giraph, GraphLab, and many others. The authors show that many vertex-centric graph analysis, including finding shortest path, finding connected components, as well as the PageRank algorithm, can be expressed as a series of SQL queries involving table scans, joins, and aggregations. Therefore, one can perform these analysis using relational databases. In particular, the tables involving graph nodes and edges are usually huge, and Vertica is highly optimized for joining and scanning large tables, hence the performance can be better than other vertex-centric systems.
+
+Specifically, there are several advantages of using relational databases for these graph mining tasks: 
+\begin{enumerate}
+\item
+First, unlike in Giraph and other platforms where the execution pipeline is hard-coded and difficult to modify, Vertica queries are very flexible. For example, it is easy to switch between merge join and hash join. The system can even dynamically choose the optimal join method depending on the structure of input data. 
+%We also have the flexibility to optimize the queries in other different ways. For example, depending on the amount of changes after each iteration, we can choose whether to update the existing relation or replace the entire table.  
+
+\item The database system also supports query pipelining and avoids materializing intermediate results, hence reduces memory usage and improves the performance. 
+
+\item It is also natural to combine graph analysis and relational analytics if we use Vertica (or other relational databases) for both tasks.
+
+\item Finally, Vertica can also handle some queries that are difficult to express in vertex-centric models, like 1-hop neighborhood graph queries.
+\end{enumerate}
+
+The authors conduct thorough experiments to compare the performance of Giraph, GraphLab and Vertica in several real datasets. They find that in terms of computation time, Vertica outperforms Giraph and is comparable to GraphLab. The authors also present an in-memory implementation using Vertica, which further improves the performance and largely reduces disk I/O. 
+
+\paragraph{Connection to our project} The most interesting part is to see that the vertex-centric graph algorithms can be expressed as SQL queries involving table scans, joins and aggregations. This gives us important insight for implementing the dense sub-tenser mining algorithm using SQL. It is also interesting to see why and when database systems outperform popular graph mining platforms.  
+
+\paragraph{Potential shortcomings} The paper only  focuses on the vertex-centric model, and the proposed framework may not be directly applicable to other graph analytics. In addition, when the data does not fit in memory as in our project, we cannot use the in-memory implementation. As shown in the paper, the disk-version has expensive disk I/O when performing iterative graph mining tasks. This can be a barrier that needs further optimization.  
+
+
+%%%%%%%%%%
+%% 2
+%%%%%%%%%%
+\subsubsection{GBase \cite{kang2012gbase} }
+
+\paragraph{Problem} This paper focuses on developing a new graph mining platform that can efficiently answer queries on huge graphs, involving billions of nodes and edges, on parallel and distributed systems such as MapReduce/Hadoop. 
+
+\paragraph{Main idea} This paper introduces a new platform for graph mining called GBase. GBase optimizes the graph mining procedure on large graphs from the following three aspects:
+\begin{enumerate}
+\item {\it Storage.} The authors proposed a novel storage method, ``compressed block encoding". Using the sparse adjacency matrix format, the graph is divided into several homogeneous regions and sub-graphs. These blocks are then compressed and placed into files using a grid-based procedure. This novel storage method is efficient for both in-degree and out-degree queries.
+
+\item {\it Algorithms.} GBase is able to conduct eleven different types of graph operations. It heavily utilizes the fact that these queries can be formatted as matrix-vector multiplications. These queries include both global queries like PageRank and connected components, as well as targeted queries like K-neighborhoods and single source shortest distances. 
+
+\item {\it Queries.} GBase also utilizes the grid-based storage structure for query optimization, so that it minimizes the disk accesses when answering targeted queries which only involve sub-graphs.  In addition, for queries involving the incidence matrix, one can express them in terms of the original adjacency matrix, hence there is no need to store the large incidence matrix on the disk.
+\end{enumerate}
+
+The authors verify in real data experiments that GBase efficiently compresses the file sizes on disk, and the novel storage method ``compressed block encoding" helps to substantially reduce the running time and improve the performance.  
+
+
+\paragraph{Connection to our project} The most inspiring part is to see that many graph queries can be written as matrix-vector manipulations, including $K$-step neighbors, $K$-step egonet, and single-source shortest distances. Moreover, these matrix-vector multiplications can be expressed as SQL queries in a straightforward way. This trick can be very helpful for us to implement the D-cube algorithm in SQL. 
+
+\paragraph{Potential shortcomings} The paper focuses on answering queries that can be written as matrix-vector multiplications.  However, it is not clear how to generalize the algorithm to answer other types of queries. In addition, the platform is mainly designed for parallel and distributed environments, so it may not be directly applicable to our project where the task is performed on a single machine. 
+
+
+%%%%%%%%%%
+%% 3
+%%%%%%%%%%
+\subsubsection{PEGASUS \cite{kang2009pegasus:}}
+
+\paragraph{Problem} Many real-world graphs involve billions of nodes and edges, and do not fit in memory, or on a single disk. Many traditional implementations of graph mining tasks are not scalable in this scenario.  This paper proposes PEGASUS,  an open source library for efficient and scalable graph mining on Peta-bytes of graphs. The library is implemented on top of the Hadoop platform. 
+
+\paragraph{Main idea} The key observation is that many graph mining operations essentially involve matrix-vector multiplication. Based on this observation, the authors define the ``GIM-V" primitive, which is a generalization of matrix-vector multiplication. Specifically, GIM-V involves three components: (i) {\tt combine2}, (ii) {\tt combineAll}, (iii) {\tt assign}. The authors show that by customizing these operations, one can obtain various graph mining algorithm such as PageRank, diameter estimation and connected components. 
+
+Then the authors carefully optimize the implementation of GIM-V. For example, one can block the input vectors such that nearby edges are also closely located on the disk, and GIM-V can be performed on blocks. The blocking strategy not only reduces the computation time, but also compresses the data size. One can further reduce the number of used blocks by clustering the input edges. Finally, sometimes it is also possible to reduce the number of iterations by multiplying diagonal blocks as much as possible in each iteration. This helps to reduce the cost of shuffling and disk I/O. The authors provide theoretical guarantee for the time complexity of GIM-V.
+
+With the highly optimized GIM-V operation, the authors show that PEGASUS is 5 times faster than the naive implementation, and is able to handle large, real graphs. The authors show an example of anomaly detection in large graphs using different graph statistics and power law. 
+
+
+\paragraph{Connection to our project} 
+It is very helpful to treat various graph mining algorithm as iteratively performing the GIM-V operations. Especially, the authors show that GIM-V primitive can be expressed as SQL queries. This provides important guidance for us to implement dense sub-tenser mining algorithms. In addition, we can borrow the authors' idea of optimizing GIM-V  to optimize our implementation of the D-cube algorithm.
+
+\paragraph{Potential shortcomings} The PEGASUS library is implemented on top of the Hadoop platform. Therefore, it is not directly applicable to our project where the analysis is conducted on a single machine. In addition, it is not clear how to use this package for general graph mining tasks that cannot be written as GIM-V operations.
+
+
