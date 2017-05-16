@@ -1,9 +1,12 @@
 A PostgreSQL implementation of D-CUBE (Disk-based Dense-block Detection).
 
 Authors:
-Lingxue Zhu (lzhu1@andrew.cmu.edu)
-Jining Qin (jiningq@andrew.cmu.edu)
+Lingxue Zhu
+Jining Qin
 ============
+
+This is the course project of CMU 15-826:
+http://www.cs.cmu.edu/~christos/courses/826.S17/project-default/index.html
 
 D-CUBE algorithm is described in the following paper: 
 http://www.cs.cmu.edu/~kijungs/codes/dcube/paper.pdf
